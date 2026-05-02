@@ -41,7 +41,7 @@ router.get("/", async (req: Request, res: Response) => {
 // GET /api/games/:id
 router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const game = await repo().findOneBy({ id: parseInt(req.params.id) });
+    const game = await repo().findOneBy({ id: parseInt(req.params.id as string) });
     if (!game) {
       res.status(404).json({ error: "Game not found" });
       return;

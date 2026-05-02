@@ -19,7 +19,7 @@ services:
       - db
     env_file: .env
     ports:
-      - "3000:3000"
+      - "9999:9999"
 
 volumes:
   pgdata:
