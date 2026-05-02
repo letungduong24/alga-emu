@@ -10,6 +10,7 @@ import {
   deleteFileOrDir,
   fileExists,
   DownloadProgress,
+  extractNdsIcon,
 } from '../../modules/app-launcher';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
@@ -499,7 +500,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
   // === Scan local filesystem for library (no API needed) ===
   const scanLocalLibrary = useCallback(async (emulatorId: string, romExtensions: string[]) => {
     // Map emulatorId to platform
-    const platformMap: Record<string, string> = { melonds: 'nds', citra: '3ds', mgba: 'gba' };
+    const platformMap: Record<string, string> = { melonds: 'nds', desmume: 'nds', citra: '3ds', mgba: 'gba' };
     const platform = platformMap[emulatorId] ?? '';
 
     try {
@@ -530,9 +531,27 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
           const ids = new Set(updated.map((g) => g.id));
           setDownloadedGameIds(ids);
         }
-        // Download missing covers for verified games
+        // Download missing covers + extract NDS icons for verified games
         for (const g of verified) {
           downloadCoverArt(g);
+          // Extract icon from NDS ROM if no cover exists yet
+          if (platform === 'nds') {
+            const coverPath = `${COVER_DIR}/${g.id}.png`;
+            fileExists(coverPath).then(async (exists) => {
+              if (!exists) {
+                const gameFolder = g.filename.replace(/\.zip$/i, '');
+                const romDir = `${baseDir}/${gameFolder}`;
+                try {
+                  const romDirFiles = await listFiles(romDir);
+                  const ndsFile = romDirFiles.find((f: string) => f.toLowerCase().endsWith('.nds'));
+                  if (ndsFile) {
+                    await createDirectory(COVER_DIR);
+                    await extractNdsIcon(ndsFile, coverPath);
+                  }
+                } catch {}
+              }
+            });
+          }
         }
         return updated;
       });

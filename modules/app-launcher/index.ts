@@ -81,3 +81,17 @@ export async function hasSave(romBaseName: string): Promise<boolean> {
 export async function hasExternalSave(romBaseName: string): Promise<boolean> {
   return AppLauncherModule.hasExternalSave(romBaseName);
 }
+
+// === Storage Permission (Android 11+) ===
+export async function checkStoragePermission(): Promise<boolean> {
+  return AppLauncherModule.checkStoragePermission();
+}
+
+export async function requestStoragePermission(): Promise<boolean> {
+  return AppLauncherModule.requestStoragePermission();
+}
+
+// === NDS ROM Icon Extraction ===
+export async function extractNdsIcon(romPath: string, outputPngPath: string): Promise<boolean> {
+  return AppLauncherModule.extractNdsIcon(romPath, outputPngPath);
+}

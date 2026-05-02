@@ -6,7 +6,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
-    "crawl": "ts-node src/crawler.ts"
+    "crawl": "ts-node src/crawler.ts",
+    "crawl:3ds": "ts-node src/crawl-3ds.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

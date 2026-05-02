@@ -21,13 +21,17 @@ class GameActivity : AppCompatActivity() {
 
     var retroView: GLRetroView? = null
 
-    private val screenLayouts = arrayOf(
-        "Left/Right",
-        "Top/Bottom",
-        "Top Only",
-        "Bottom Only",
-        "Hybrid Top",
+    // melonDS layouts
+    private val melondsLayouts = arrayOf(
+        "Left/Right", "Top/Bottom", "Top Only", "Bottom Only", "Hybrid Top",
     )
+    // DeSmuME layouts
+    private val desmumeLayouts = arrayOf(
+        "left/right", "top/bottom", "top only", "bottom only", "hybrid/top",
+    )
+    private var screenLayouts = melondsLayouts
+    private var screenLayoutVar = "melonds_screen_layout"
+    private var isMelonDS = true
     var currentLayoutIndex = 0
     var currentStateSlot = 0
     private var romBaseName: String = ""
@@ -155,6 +159,12 @@ class GameActivity : AppCompatActivity() {
         val isNDS = corePath.contains("melonds", ignoreCase = true) ||
                     corePath.contains("desmume", ignoreCase = true)
 
+        isMelonDS = corePath.contains("melonds", ignoreCase = true)
+        if (!isMelonDS && corePath.contains("desmume", ignoreCase = true)) {
+            screenLayouts = desmumeLayouts
+            screenLayoutVar = "desmume_screens_layout"
+        }
+
         val viewData = GLRetroViewData(this).apply {
             coreFilePath = corePath
             gameFilePath = romPath
@@ -166,10 +176,17 @@ class GameActivity : AppCompatActivity() {
             skipDuplicateFrames = false
 
             if (isNDS) {
-                variables = arrayOf(
-                    Variable("melonds_screen_layout", screenLayouts[0]),
-                    Variable("melonds_touch_mode", "Touch"),
-                )
+                if (isMelonDS) {
+                    variables = arrayOf(
+                        Variable("melonds_screen_layout", screenLayouts[0]),
+                        Variable("melonds_touch_mode", "Touch"),
+                    )
+                } else {
+                    variables = arrayOf(
+                        Variable("desmume_screens_layout", screenLayouts[0]),
+                        Variable("desmume_pointer_type", "touch"),
+                    )
+                }
             }
         }
 
@@ -236,6 +253,17 @@ class GameActivity : AppCompatActivity() {
         lifecycle.addObserver(retroView!!)
     }
 
+    override fun onDestroy() {
+        retroView?.let {
+            lifecycle.removeObserver(it)
+            (it.parent as? android.view.ViewGroup)?.removeView(it)
+        }
+        retroView = null
+        super.onDestroy()
+        // Force kill :game process to fully clean native .so state
+        android.os.Process.killProcess(android.os.Process.myPid())
+    }
+
     // === NDS screen layout ===
     fun toggleScreenLayout() {
         currentLayoutIndex = (currentLayoutIndex + 1) % screenLayouts.size
@@ -245,8 +273,8 @@ class GameActivity : AppCompatActivity() {
     fun applyScreenLayout(index: Int) {
         currentLayoutIndex = index.coerceIn(0, screenLayouts.size - 1)
         val layout = screenLayouts[currentLayoutIndex]
-        android.util.Log.d("GameActivity", "Screen layout: $layout")
-        retroView?.updateVariables(Variable("melonds_screen_layout", layout))
+        android.util.Log.d("GameActivity", "Screen layout: $layout (var: $screenLayoutVar)")
+        retroView?.updateVariables(Variable(screenLayoutVar, layout))
     }
 
     fun getCurrentLayoutName(): String = screenLayouts[currentLayoutIndex]
@@ -307,11 +335,6 @@ class GameActivity : AppCompatActivity() {
     private var finishTriggered = false
     private var exitDialogShowing = false
 
-    override fun onDestroy() {
-        android.util.Log.d("GameActivity", "=== onDestroy ===")
-        super.onDestroy()
-        retroView = null
-    }
 
     /**
      * Flow thoát game:

@@ -23,7 +23,7 @@ export const NDS_GAMES: Game[] = [
     id: 'pokemon-white',
     title: 'Pokémon White',
     description: 'Thế giới Pokémon Gen 5 - Vùng đất Unova huyền thoại',
-    emulatorId: 'melonds',
+    emulatorId: 'desmume',
     downloadUrl: 'https://duongle.dev/white.zip',
     romFileName: 'white.nds',
     image: require('@/assets/games/white.jpg'),
@@ -32,5 +32,5 @@ export const NDS_GAMES: Game[] = [
 
 // Map emulatorId -> danh sách game
 export const GAME_LIBRARY: Record<string, Game[]> = {
-  melonds: NDS_GAMES,
+  desmume: NDS_GAMES,
 };

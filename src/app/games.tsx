@@ -29,6 +29,7 @@ export default function StoreScreen() {
 
   const platformMap: Record<string, string> = {
     melonds: 'nds',
+    desmume: 'nds',
     citra: '3ds',
     mgba: 'gba',
   };

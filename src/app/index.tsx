@@ -1,10 +1,12 @@
-import React, { useState, useRef, useMemo } from 'react';
-import { View, Text, FlatList, Image, StatusBar, ImageBackground, useWindowDimensions, TouchableOpacity } from 'react-native';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import { View, Text, FlatList, Image, StatusBar, ImageBackground, useWindowDimensions, TouchableOpacity, AppState } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { EmulatorCard } from '@/components/EmulatorCard';
 import { EMULATORS } from '@/constants/emulators';
 import { useCore } from '@/hooks/useEmulator';
+import { checkStoragePermission, requestStoragePermission } from '../../modules/app-launcher';
+import { CustomAlert } from '@/components/CustomAlert';
 import Animated, { 
   FadeIn, 
   FadeInDown, 
@@ -40,6 +42,26 @@ export default function HomeScreen() {
   const router = useRouter();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
+  const [showPermissionAlert, setShowPermissionAlert] = useState(false);
+
+  // === Storage Permission Check ===
+  const recheckPermission = useCallback(async () => {
+    try {
+      const granted = await checkStoragePermission();
+      setShowPermissionAlert(!granted);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    recheckPermission();
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') recheckPermission();
+    });
+    return () => sub.remove();
+  }, [recheckPermission]);
 
   const selectedEmulator = EMULATORS[selectedIndex];
   
@@ -173,6 +195,21 @@ export default function HomeScreen() {
           </View>
         </Animated.View>
       </View>
+
+      {/* Storage Permission Alert */}
+      <CustomAlert
+        visible={showPermissionAlert}
+        title="Cấp quyền truy cập"
+        message={"Alga cần quyền \"Truy cập mọi tệp\" để tải và quản lý ROM game.\n\nNhấn \"Cấp quyền\" để mở Cài đặt."}
+        confirmText="Cấp quyền"
+        cancelText="Để sau"
+        confirmColor="#00f2ff"
+        onConfirm={async () => {
+          setShowPermissionAlert(false);
+          await requestStoragePermission();
+        }}
+        onCancel={() => setShowPermissionAlert(false)}
+      />
     </View>
   );
 }

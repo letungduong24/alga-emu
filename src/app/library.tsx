@@ -51,7 +51,7 @@ export default function LibraryScreen() {
 
   const emulatorGames = useMemo(() => {
     return downloadedGames.filter((g) => {
-      const platformMap: Record<string, string> = { melonds: 'nds', citra: '3ds', mgba: 'gba' };
+      const platformMap: Record<string, string> = { melonds: 'nds', desmume: 'nds', citra: '3ds', mgba: 'gba' };
       const platform = platformMap[emulatorId ?? ''] ?? '';
       return g.platform === platform;
     });

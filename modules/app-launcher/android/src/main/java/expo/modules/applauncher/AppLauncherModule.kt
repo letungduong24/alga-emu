@@ -5,12 +5,18 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.RandomAccessFile
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -249,6 +255,121 @@ class AppLauncherModule : Module() {
       val downloadId = downloadIdStr.toLong()
       dm.remove(downloadId)
       true
+    }
+
+    // === STORAGE PERMISSION (Android 11+) ===
+    AsyncFunction("checkStoragePermission") {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        Environment.isExternalStorageManager()
+      } else {
+        true // Pre-Android 11 doesn't need this special permission
+      }
+    }
+
+    AsyncFunction("requestStoragePermission") {
+      val context = appContext.reactContext ?: throw Exception("Context is null")
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+        intent.data = Uri.parse("package:${context.packageName}")
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+      }
+      true
+    }
+
+    // === EXTRACT NDS ROM ICON ===
+    // Reads the 32x32 4-bit tiled icon from the NDS banner data and saves as PNG
+    AsyncFunction("extractNdsIcon") { romPath: String, outputPngPath: String ->
+      try {
+        val romFile = File(romPath)
+        if (!romFile.exists()) return@AsyncFunction false
+
+        val raf = RandomAccessFile(romFile, "r")
+
+        // Read banner offset from NDS header at 0x68 (4 bytes, little-endian)
+        raf.seek(0x68)
+        val b0 = raf.read()
+        val b1 = raf.read()
+        val b2 = raf.read()
+        val b3 = raf.read()
+        val bannerOffset = (b0 and 0xFF) or
+          ((b1 and 0xFF) shl 8) or
+          ((b2 and 0xFF) shl 16) or
+          ((b3 and 0xFF) shl 24)
+
+        if (bannerOffset <= 0 || bannerOffset >= raf.length()) {
+          raf.close()
+          return@AsyncFunction false
+        }
+
+        // Read icon bitmap data: 512 bytes at bannerOffset + 0x20
+        raf.seek(bannerOffset.toLong() + 0x20)
+        val bitmapData = ByteArray(512)
+        raf.readFully(bitmapData)
+
+        // Read palette data: 32 bytes at bannerOffset + 0x220
+        raf.seek(bannerOffset.toLong() + 0x220)
+        val paletteData = ByteArray(32)
+        raf.readFully(paletteData)
+        raf.close()
+
+        // Decode palette: 16 colors, BGR555 format (2 bytes each)
+        val palette = IntArray(16)
+        for (i in 0 until 16) {
+          val lo = paletteData[i * 2].toInt() and 0xFF
+          val hi = paletteData[i * 2 + 1].toInt() and 0xFF
+          val color16 = lo or (hi shl 8)
+          val r = ((color16 and 0x001F) shl 3) or ((color16 and 0x001F) shr 2)
+          val g = (((color16 and 0x03E0) shr 5) shl 3) or (((color16 and 0x03E0) shr 5) shr 2)
+          val b = (((color16 and 0x7C00) shr 10) shl 3) or (((color16 and 0x7C00) shr 10) shr 2)
+          palette[i] = if (i == 0) Color.TRANSPARENT else Color.argb(255, r, g, b)
+        }
+
+        // Decode 4-bit tiled bitmap (8x8 tiles, 4 tiles across, 4 tiles down)
+        val pixels = IntArray(32 * 32)
+        var byteIdx = 0
+        for (tileY in 0 until 4) {
+          for (tileX in 0 until 4) {
+            for (row in 0 until 8) {
+              for (col in 0 until 4) {
+                if (byteIdx >= bitmapData.size) break
+                val byte = bitmapData[byteIdx].toInt() and 0xFF
+                val px0 = byte and 0x0F      // low nibble = first pixel
+                val px1 = (byte shr 4) and 0x0F // high nibble = second pixel
+
+                val x0 = tileX * 8 + col * 2
+                val y0 = tileY * 8 + row
+                if (x0 < 32 && y0 < 32) pixels[y0 * 32 + x0] = palette[px0]
+                if (x0 + 1 < 32 && y0 < 32) pixels[y0 * 32 + x0 + 1] = palette[px1]
+
+                byteIdx++
+              }
+            }
+          }
+        }
+
+        // Create 32x32 bitmap
+        val smallBmp = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
+        smallBmp.setPixels(pixels, 0, 32, 0, 0, 32, 32)
+
+        // Upscale to 128x128 for better display quality (nearest neighbor)
+        val scaledBmp = Bitmap.createScaledBitmap(smallBmp, 128, 128, false)
+        smallBmp.recycle()
+
+        // Save as PNG
+        val outFile = File(outputPngPath)
+        outFile.parentFile?.mkdirs()
+        FileOutputStream(outFile).use { fos ->
+          scaledBmp.compress(Bitmap.CompressFormat.PNG, 100, fos)
+        }
+        scaledBmp.recycle()
+
+        android.util.Log.d("AppLauncher", "Extracted NDS icon: $outputPngPath")
+        true
+      } catch (e: Exception) {
+        android.util.Log.e("AppLauncher", "Failed to extract NDS icon: ${e.message}")
+        false
+      }
     }
   }
 }
