@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.applauncher'
+version = '0.7.10'
+
+android {
+  namespace "expo.modules.applauncher"
+  defaultConfig {
+    versionCode 1
+    versionName "0.7.10"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  implementation "androidx.core:core:1.13.1"
+  implementation "androidx.appcompat:appcompat:1.7.0"
+  implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.7"
+  implementation "androidx.lifecycle:lifecycle-common-java8:2.8.7"
+  implementation "com.github.Swordfish90:LibretroDroid:0.13.2"
+}

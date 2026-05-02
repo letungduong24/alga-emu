@@ -1,0 +1,459 @@
+package expo.modules.applauncher
+
+import android.content.Context
+import android.content.SharedPreferences
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.util.AttributeSet
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import com.swordfish.libretrodroid.GLRetroView
+
+class TouchControlsOverlay @JvmOverloads constructor(
+    context: Context,
+    attrs: AttributeSet? = null
+) : View(context, attrs) {
+
+    var retroView: GLRetroView? = null
+    var gameActivity: GameActivity? = null
+    var isNDS: Boolean = false
+
+    private val prefs: SharedPreferences = context.getSharedPreferences("alga_controls", Context.MODE_PRIVATE)
+    private var buttonScale: Float = prefs.getFloat("button_scale", 1.0f)
+    private var currentSpeed: Int = 1
+    private var menuOpen: Boolean = false
+
+    // === Paint ===
+    private val btnFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(110, 0, 0, 0); style = Paint.Style.FILL
+    }
+    private val btnPressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(170, 50, 140, 220); style = Paint.Style.FILL
+    }
+    private val btnStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(160, 255, 255, 255); style = Paint.Style.STROKE; strokeWidth = 2f
+    }
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(230, 255, 255, 255); textAlign = Paint.Align.CENTER
+        isFakeBoldText = true; setShadowLayer(4f, 1f, 1f, Color.argb(200, 0, 0, 0))
+    }
+    private val menuDimPaint = Paint().apply { color = Color.argb(100, 0, 0, 0) }
+    private val menuBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(240, 20, 20, 30); style = Paint.Style.FILL
+    }
+    private val menuBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(50, 255, 255, 255); style = Paint.Style.STROKE; strokeWidth = 1f
+    }
+    private val menuItemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(45, 255, 255, 255); style = Paint.Style.FILL
+    }
+    private val menuActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(180, 45, 120, 210); style = Paint.Style.FILL
+    }
+    private val menuTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(245, 255, 255, 255); textAlign = Paint.Align.CENTER
+    }
+    private val menuLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(120, 160, 170, 200); textAlign = Paint.Align.LEFT
+    }
+    private val menuHintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(70, 160, 170, 200); textAlign = Paint.Align.CENTER
+    }
+
+    data class VButton(
+        val id: String, val label: String, val keyCode: Int,
+        var bounds: RectF = RectF(), var isPressed: Boolean = false
+    )
+
+    private val gameButtons = mutableListOf(
+        VButton("du", "▲", KeyEvent.KEYCODE_DPAD_UP),
+        VButton("dd", "▼", KeyEvent.KEYCODE_DPAD_DOWN),
+        VButton("dl", "◀", KeyEvent.KEYCODE_DPAD_LEFT),
+        VButton("dr", "▶", KeyEvent.KEYCODE_DPAD_RIGHT),
+        VButton("a", "A", KeyEvent.KEYCODE_BUTTON_A),
+        VButton("b", "B", KeyEvent.KEYCODE_BUTTON_B),
+        VButton("x", "X", KeyEvent.KEYCODE_BUTTON_X),
+        VButton("y", "Y", KeyEvent.KEYCODE_BUTTON_Y),
+        VButton("l", "L", KeyEvent.KEYCODE_BUTTON_L1),
+        VButton("r", "R", KeyEvent.KEYCODE_BUTTON_R1),
+        VButton("start", "START", KeyEvent.KEYCODE_BUTTON_START),
+        VButton("select", "SELECT", KeyEvent.KEYCODE_BUTTON_SELECT),
+    )
+
+    private val menuButton = VButton("menu", "⚙", -1)
+
+    data class MenuItem(val id: String, var label: String, var bounds: RectF = RectF())
+
+    private val speedItems = listOf(MenuItem("s1", "1×"), MenuItem("s2", "2×"), MenuItem("s4", "4×"))
+    private val scaleItems = listOf(MenuItem("sd", "Thu nhỏ"), MenuItem("su", "Phóng to"))
+    private val saveStateItems = listOf(MenuItem("ss0", "Lưu 1"), MenuItem("ss1", "Lưu 2"), MenuItem("ss2", "Lưu 3"))
+    private val loadStateItems = listOf(MenuItem("ls0", "Tải 1"), MenuItem("ls1", "Tải 2"), MenuItem("ls2", "Tải 3"))
+    private val layoutItems = listOf(
+        MenuItem("l0", "Trái / Phải"), MenuItem("l1", "Trên / Dưới"),
+        MenuItem("l2", "Chỉ màn trên"), MenuItem("l3", "Chỉ màn dưới"), MenuItem("l4", "Kết hợp"),
+    )
+
+    private var menuPanelRect = RectF()
+    private val pointerButtons = mutableMapOf<Int, MutableSet<String>>()
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        layoutButtons(w.toFloat(), h.toFloat())
+    }
+
+    private fun layoutButtons(w: Float, h: Float) {
+        val u = minOf(w, h) * 0.075f * buttonScale
+        // Margin lớn hơn để nút KHÔNG bị lẹm ra ngoài
+        val safeMargin = u * 1.5f
+
+        textPaint.textSize = u * 0.5f
+
+        // === D-PAD ===
+        val dR = u * 0.9f
+        val dGap = dR * 0.15f
+        val dStep = dR * 2f + dGap
+        // Center D-pad sao cho nút ngoài cùng cách viền = safeMargin
+        val dCX = safeMargin + dStep
+        val dCY = h - safeMargin - dStep
+
+        setCircle(gameButtons[0], dCX, dCY - dStep, dR)
+        setCircle(gameButtons[1], dCX, dCY + dStep, dR)
+        setCircle(gameButtons[2], dCX - dStep, dCY, dR)
+        setCircle(gameButtons[3], dCX + dStep, dCY, dR)
+
+        // === ABXY ===
+        val fR = u * 0.85f
+        val fGap = fR * 0.2f
+        val fStep = fR * 2f + fGap
+        val fCX = w - safeMargin - fStep
+        val fCY = h - safeMargin - fStep
+
+        setCircle(gameButtons[4], fCX + fStep, fCY, fR)  // A
+        setCircle(gameButtons[5], fCX, fCY + fStep, fR)  // B
+        setCircle(gameButtons[6], fCX, fCY - fStep, fR)  // X
+        setCircle(gameButtons[7], fCX - fStep, fCY, fR)  // Y
+
+        // === L / R (nhỏ hơn, thụt vào) ===
+        val lrW = u * 2.2f; val lrH = u * 0.85f
+        val topM = u * 1.2f
+        gameButtons[8].bounds.set(topM, topM, topM + lrW, topM + lrH)
+        gameButtons[9].bounds.set(w - topM - lrW, topM, w - topM, topM + lrH)
+
+        // === START / SELECT ===
+        val sW = u * 1.7f; val sH = u * 0.65f
+        val sY = h - u * 0.6f - sH
+        val sGap = u * 1.0f  // Khoảng cách giữa SELECT - START (chừa chỗ cho ⚙)
+        gameButtons[10].bounds.set(w * 0.5f + sGap, sY, w * 0.5f + sGap + sW, sY + sH)   // START
+        gameButtons[11].bounds.set(w * 0.5f - sGap - sW, sY, w * 0.5f - sGap, sY + sH)   // SELECT
+
+        // === ⚙ GIỮA SELECT VÀ START (không che game) ===
+        val gearS = u * 0.5f
+        menuButton.bounds.set(
+            w * 0.5f - gearS, sY,
+            w * 0.5f + gearS, sY + sH
+        )
+
+        layoutMenuPanel(w, h)
+    }
+
+    private fun layoutMenuPanel(w: Float, h: Float) {
+        val panelW = minOf(w * 0.55f, 640f)
+        val itemH = minOf(h * 0.085f, 58f)
+        val gap = 5f
+        val sectionLabelH = itemH * 0.55f
+        val sectionGap = 10f
+        val titleH = itemH * 1.1f
+        val padY = 14f
+        val padX = panelW * 0.05f
+
+        // Đếm nội dung: speed + scale + save/load state + layout(NDS)
+        var contentH = titleH + padY
+        contentH += sectionLabelH + sectionGap + itemH + gap  // Speed
+        contentH += sectionLabelH + sectionGap + itemH + gap  // Scale
+        contentH += sectionLabelH + sectionGap + itemH + gap  // Save state (3 cols)
+        contentH += sectionLabelH + sectionGap + itemH + gap  // Load state (3 cols)
+        if (isNDS) {
+            contentH += sectionLabelH + sectionGap + layoutItems.size * (itemH + gap)
+        }
+        contentH += padY + sectionLabelH  // Hint
+
+        val panelX = (w - panelW) * 0.5f
+        val panelY = (h - contentH) * 0.5f
+        menuPanelRect.set(panelX, panelY, panelX + panelW, panelY + contentH)
+
+        var curY = panelY + titleH + padY
+
+        // Speed: 3 columns
+        curY += sectionLabelH + sectionGap
+        val colW3 = (panelW - padX * 2f - gap * 2f) / 3f
+        for ((i, item) in speedItems.withIndex()) {
+            val x = panelX + padX + i * (colW3 + gap)
+            item.bounds.set(x, curY, x + colW3, curY + itemH)
+        }
+        curY += itemH + gap
+
+        // Scale: 2 columns
+        curY += sectionLabelH + sectionGap
+        val colW2 = (panelW - padX * 2f - gap) / 2f
+        for ((i, item) in scaleItems.withIndex()) {
+            val x = panelX + padX + i * (colW2 + gap)
+            item.bounds.set(x, curY, x + colW2, curY + itemH)
+        }
+        curY += itemH + gap
+
+        // Save State: 3 columns
+        curY += sectionLabelH + sectionGap
+        for ((i, item) in saveStateItems.withIndex()) {
+            val x = panelX + padX + i * (colW3 + gap)
+            item.bounds.set(x, curY, x + colW3, curY + itemH)
+        }
+        curY += itemH + gap
+
+        // Load State: 3 columns
+        curY += sectionLabelH + sectionGap
+        for ((i, item) in loadStateItems.withIndex()) {
+            val x = panelX + padX + i * (colW3 + gap)
+            item.bounds.set(x, curY, x + colW3, curY + itemH)
+        }
+        curY += itemH + gap
+
+        // Layout (NDS)
+        if (isNDS) {
+            curY += sectionLabelH + sectionGap
+            for (item in layoutItems) {
+                item.bounds.set(panelX + padX, curY, panelX + panelW - padX, curY + itemH)
+                curY += itemH + gap
+            }
+        }
+    }
+
+    private fun getActiveMenuItems(): List<MenuItem> {
+        val base = speedItems + scaleItems + saveStateItems + loadStateItems
+        return if (isNDS) base + layoutItems else base
+    }
+
+    private fun setCircle(btn: VButton, cx: Float, cy: Float, r: Float) {
+        btn.bounds.set(cx - r, cy - r, cx + r, cy + r)
+    }
+
+    // === Drawing ===
+
+    override fun onDraw(canvas: Canvas) {
+        // Luôn vẽ nút (kể cả khi menu mở → xem resize realtime)
+        for (btn in gameButtons) drawGameButton(canvas, btn)
+        drawGearButton(canvas)
+
+        if (menuOpen) {
+            canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), menuDimPaint)
+            drawMenuPanel(canvas)
+        }
+    }
+
+    private fun drawGameButton(canvas: Canvas, btn: VButton) {
+        val fill = if (btn.isPressed) btnPressedPaint else btnFillPaint
+        val isCircle = btn.label.length <= 1 || btn.label in listOf("▲", "▼", "◀", "▶")
+        if (isCircle) {
+            val cx = btn.bounds.centerX(); val cy = btn.bounds.centerY()
+            val r = btn.bounds.width() * 0.5f
+            canvas.drawCircle(cx, cy, r, fill)
+            canvas.drawCircle(cx, cy, r, btnStrokePaint)
+            canvas.drawText(btn.label, cx, cy + textPaint.textSize * 0.35f, textPaint)
+        } else {
+            val cr = btn.bounds.height() * 0.4f
+            canvas.drawRoundRect(btn.bounds, cr, cr, fill)
+            canvas.drawRoundRect(btn.bounds, cr, cr, btnStrokePaint)
+            val s = textPaint.textSize * 0.75f; val saved = textPaint.textSize
+            textPaint.textSize = s
+            canvas.drawText(btn.label, btn.bounds.centerX(), btn.bounds.centerY() + s * 0.35f, textPaint)
+            textPaint.textSize = saved
+        }
+    }
+
+    private fun drawGearButton(canvas: Canvas) {
+        val fill = if (menuButton.isPressed) btnPressedPaint else btnFillPaint
+        val cr = menuButton.bounds.height() * 0.35f
+        canvas.drawRoundRect(menuButton.bounds, cr, cr, fill)
+        canvas.drawRoundRect(menuButton.bounds, cr, cr, btnStrokePaint)
+        val s = menuButton.bounds.height() * 0.45f; val saved = textPaint.textSize
+        textPaint.textSize = s
+        canvas.drawText("⚙", menuButton.bounds.centerX(), menuButton.bounds.centerY() + s * 0.3f, textPaint)
+        textPaint.textSize = saved
+    }
+
+    private fun drawMenuPanel(canvas: Canvas) {
+        val cr = 16f
+        canvas.drawRoundRect(menuPanelRect, cr, cr, menuBgPaint)
+        canvas.drawRoundRect(menuPanelRect, cr, cr, menuBorderPaint)
+
+        val titleSize = menuPanelRect.width() * 0.055f
+        val labelSize = titleSize * 0.55f
+        val itemTextSize = titleSize * 0.65f
+        val padX = menuPanelRect.left + menuPanelRect.width() * 0.05f
+
+        menuTextPaint.textSize = titleSize; menuTextPaint.isFakeBoldText = true
+        canvas.drawText("Cài đặt", menuPanelRect.centerX(), menuPanelRect.top + titleSize * 1.3f, menuTextPaint)
+        menuTextPaint.isFakeBoldText = false; menuTextPaint.textSize = itemTextSize
+        menuLabelPaint.textSize = labelSize
+
+        // Speed
+        canvas.drawText("Tốc độ", padX, speedItems[0].bounds.top - labelSize * 0.3f, menuLabelPaint)
+        for (item in speedItems) {
+            val a = (item.id == "s1" && currentSpeed == 1) || (item.id == "s2" && currentSpeed == 2) || (item.id == "s4" && currentSpeed == 4)
+            drawMenuItem(canvas, item, a)
+        }
+
+        // Scale
+        canvas.drawText("Kích cỡ nút", padX, scaleItems[0].bounds.top - labelSize * 0.3f, menuLabelPaint)
+        for (item in scaleItems) drawMenuItem(canvas, item, false)
+
+        // Save State
+        canvas.drawText("Lưu nhanh", padX, saveStateItems[0].bounds.top - labelSize * 0.3f, menuLabelPaint)
+        for ((i, item) in saveStateItems.withIndex()) {
+            val hasData = gameActivity?.hasState(i) ?: false
+            drawMenuItem(canvas, item, hasData)
+        }
+
+        // Load State
+        canvas.drawText("Tải nhanh", padX, loadStateItems[0].bounds.top - labelSize * 0.3f, menuLabelPaint)
+        for ((i, item) in loadStateItems.withIndex()) {
+            val hasData = gameActivity?.hasState(i) ?: false
+            drawMenuItem(canvas, item, hasData)
+        }
+
+        // Layout (NDS)
+        if (isNDS && layoutItems.isNotEmpty()) {
+            canvas.drawText("Bố cục màn hình", padX, layoutItems[0].bounds.top - labelSize * 0.3f, menuLabelPaint)
+            for ((i, item) in layoutItems.withIndex())
+                drawMenuItem(canvas, item, gameActivity?.currentLayoutIndex == i)
+        }
+
+        // Hint
+        menuHintPaint.textSize = labelSize
+        canvas.drawText("Chạm ngoài để đóng", menuPanelRect.centerX(), menuPanelRect.bottom - labelSize * 0.3f, menuHintPaint)
+    }
+
+    private fun drawMenuItem(canvas: Canvas, item: MenuItem, active: Boolean) {
+        val cr = item.bounds.height() * 0.25f
+        canvas.drawRoundRect(item.bounds, cr, cr, if (active) menuActivePaint else menuItemPaint)
+        canvas.drawRoundRect(item.bounds, cr, cr, menuBorderPaint)
+        canvas.drawText(item.label, item.bounds.centerX(), item.bounds.centerY() + menuTextPaint.textSize * 0.35f, menuTextPaint)
+    }
+
+    // === Touch ===
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (menuOpen) return handleMenuTouch(event)
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val x = event.getX(event.actionIndex); val y = event.getY(event.actionIndex)
+                if (menuButton.bounds.contains(x, y)) { openMenu(); return true }
+                if (!gameButtons.any { it.bounds.contains(x, y) }) return false
+                handlePress(event.getPointerId(event.actionIndex), x, y)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val i = event.actionIndex
+                handlePress(event.getPointerId(i), event.getX(i), event.getY(i))
+            }
+            MotionEvent.ACTION_MOVE -> {
+                for (i in 0 until event.pointerCount)
+                    handleMove(event.getPointerId(i), event.getX(i), event.getY(i))
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP ->
+                handleRelease(event.getPointerId(event.actionIndex))
+            MotionEvent.ACTION_CANCEL -> releaseAll()
+        }
+        return true
+    }
+
+    private fun handleMenuTouch(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            val x = event.x; val y = event.y
+            for (item in getActiveMenuItems()) {
+                if (item.bounds.contains(x, y)) { handleMenuAction(item.id); return true }
+            }
+            if (!menuPanelRect.contains(x, y)) closeMenu()
+        }
+        return true
+    }
+
+    private fun openMenu() { menuOpen = true; releaseAll(); invalidate() }
+    private fun closeMenu() { menuOpen = false; invalidate() }
+
+    private fun handlePress(pid: Int, x: Float, y: Float) {
+        val pressed = mutableSetOf<String>()
+        for (btn in gameButtons) {
+            if (btn.bounds.contains(x, y) && !btn.isPressed) {
+                btn.isPressed = true; retroView?.sendKeyEvent(KeyEvent.ACTION_DOWN, btn.keyCode, 0); pressed.add(btn.id)
+            }
+        }
+        pointerButtons[pid] = pressed; invalidate()
+    }
+
+    private fun handleMove(pid: Int, x: Float, y: Float) {
+        val prev = pointerButtons[pid] ?: mutableSetOf()
+        val now = mutableSetOf<String>()
+        for (btn in gameButtons) { if (btn.bounds.contains(x, y)) now.add(btn.id) }
+        for (id in now - prev) {
+            val btn = gameButtons.find { it.id == id } ?: continue
+            if (!btn.isPressed) { btn.isPressed = true; retroView?.sendKeyEvent(KeyEvent.ACTION_DOWN, btn.keyCode, 0) }
+        }
+        for (id in prev - now) {
+            val btn = gameButtons.find { it.id == id } ?: continue
+            if (!pointerButtons.any { (p, s) -> p != pid && id in s }) {
+                btn.isPressed = false; retroView?.sendKeyEvent(KeyEvent.ACTION_UP, btn.keyCode, 0)
+            }
+        }
+        pointerButtons[pid] = now; invalidate()
+    }
+
+    private fun handleRelease(pid: Int) {
+        val pressed = pointerButtons.remove(pid) ?: return
+        for (id in pressed) {
+            val btn = gameButtons.find { it.id == id } ?: continue
+            if (!pointerButtons.any { (_, s) -> id in s }) {
+                btn.isPressed = false; retroView?.sendKeyEvent(KeyEvent.ACTION_UP, btn.keyCode, 0)
+            }
+        }
+        invalidate()
+    }
+
+    private fun releaseAll() {
+        for (btn in gameButtons) {
+            if (btn.isPressed) { btn.isPressed = false; retroView?.sendKeyEvent(KeyEvent.ACTION_UP, btn.keyCode, 0) }
+        }
+        pointerButtons.clear(); invalidate()
+    }
+
+    private fun handleMenuAction(id: String) {
+        when (id) {
+            "s1" -> { currentSpeed = 1; retroView?.frameSpeed = 1 }
+            "s2" -> { currentSpeed = 2; retroView?.frameSpeed = 2 }
+            "s4" -> { currentSpeed = 4; retroView?.frameSpeed = 4 }
+            "su" -> adjustScale(0.15f)
+            "sd" -> adjustScale(-0.15f)
+            "ss0" -> { gameActivity?.saveState(0); closeMenu() }
+            "ss1" -> { gameActivity?.saveState(1); closeMenu() }
+            "ss2" -> { gameActivity?.saveState(2); closeMenu() }
+            "ls0" -> { gameActivity?.loadState(0); closeMenu() }
+            "ls1" -> { gameActivity?.loadState(1); closeMenu() }
+            "ls2" -> { gameActivity?.loadState(2); closeMenu() }
+            "l0" -> setLayout(0); "l1" -> setLayout(1)
+            "l2" -> setLayout(2); "l3" -> setLayout(3); "l4" -> setLayout(4)
+        }
+        invalidate()
+    }
+
+    private fun adjustScale(d: Float) {
+        buttonScale = (buttonScale + d).coerceIn(0.5f, 1.8f)
+        prefs.edit().putFloat("button_scale", buttonScale).apply()
+        layoutButtons(width.toFloat(), height.toFloat())
+    }
+
+    private fun setLayout(i: Int) {
+        gameActivity?.let { it.currentLayoutIndex = i; it.applyScreenLayout(i) }
+    }
+}

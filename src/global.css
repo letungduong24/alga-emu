@@ -1,3 +1,32 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+
+@import "nativewind/theme";
+
+@theme {
+  --color-retro-blue: #00f2ff;
+  --color-retro-purple: #bc13fe;
+  --color-retro-dark: #0a0a0a;
+  --color-retro-card: rgba(255, 255, 255, 0.05);
+  
+  --font-arcade: "Pixelify Sans", "Press Start 2P", system-ui;
+}
+
+@utility retro-glow-blue {
+  text-shadow: 0 0 5px #00f2ff, 0 0 10px #00f2ff;
+}
+
+@utility retro-glow-purple {
+  text-shadow: 0 0 5px #bc13fe, 0 0 10px #bc13fe;
+}
+
+@utility card-glass {
+  background-color: var(--color-retro-card);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 :root {
   --font-display:
     Spline Sans, Inter, ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji,
