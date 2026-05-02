@@ -60,12 +60,7 @@ const COVER_DIR = '/storage/emulated/0/Alga/covers';
 const POLL_INTERVAL = 800;
 const DOWNLOADED_GAMES_KEY = 'alga_downloaded_games';
 
-const THUMB_BASES: Record<string, string> = {
-  nds: 'https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Nintendo_DS/master/Named_Boxarts',
-  '3ds': 'https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Nintendo_3DS/master/Named_Boxarts',
-  gba: 'https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Game_Boy_Advance/master/Named_Boxarts',
-};
-const REGIONS = ['(USA)', '(Europe)', '(USA) (En,Fr,Es)', '(Europe) (En,Fr,De,Es,It)', '(Japan)', '(USA, Europe)'];
+
 
 // === Provider ===
 export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -205,7 +200,19 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
         const game = gameMeta.current.get(gameId);
         if (game) {
           addToDownloaded(game);
-          downloadCoverArt(game); // async, non-blocking
+
+          // Extract NDS icon from ROM immediately after download
+          if (game.platform === 'nds' && rom) {
+            const coverPath = `${COVER_DIR}/${game.id}.png`;
+            fileExists(coverPath).then(async (exists) => {
+              if (!exists) {
+                try {
+                  await createDirectory(COVER_DIR);
+                  await extractNdsIcon(rom, coverPath);
+                } catch {}
+              }
+            });
+          }
         }
 
         queryClient.invalidateQueries({ queryKey: ['games'] });
@@ -464,38 +471,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
     });
   }, [downloadedGames, persistDownloadedGames]);
 
-  // === Download cover art (async, non-blocking) ===
-  const downloadCoverArt = useCallback(async (game: ApiGame) => {
-    try {
-      const destPath = `${COVER_DIR}/${game.id}.png`;
 
-      // Skip if already cached
-      const exists = await fileExists(destPath);
-      if (exists) return;
-
-      await createDirectory(COVER_DIR);
-      const baseName = game.filename.replace(/\.zip$/i, '');
-      const thumbBase = THUMB_BASES[game.platform] || THUMB_BASES['nds'];
-
-      // Try each region variant
-      const candidates = REGIONS.map((r) => `${thumbBase}/${encodeURIComponent(`${baseName} ${r}`)}.png`);
-      candidates.push(`${thumbBase}/${encodeURIComponent(baseName)}.png`);
-
-      for (const url of candidates) {
-        try {
-          const result = await FileSystem.downloadAsync(url, `${FileSystem.cacheDirectory}cover_${game.id}.png`);
-          if (result.status === 200) {
-            // Move from cache to permanent location
-            const { copyFile: cp } = require('../../modules/app-launcher');
-            const cachePath = result.uri.replace('file://', '');
-            await cp(cachePath, destPath);
-            await FileSystem.deleteAsync(result.uri, { idempotent: true });
-            return;
-          }
-        } catch {}
-      }
-    } catch {}
-  }, []);
 
   // === Scan local filesystem for library (no API needed) ===
   const scanLocalLibrary = useCallback(async (emulatorId: string, romExtensions: string[]) => {
@@ -531,9 +507,8 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
           const ids = new Set(updated.map((g) => g.id));
           setDownloadedGameIds(ids);
         }
-        // Download missing covers + extract NDS icons for verified games
+        // Extract NDS icons for verified games
         for (const g of verified) {
-          downloadCoverArt(g);
           // Extract icon from NDS ROM if no cover exists yet
           if (platform === 'nds') {
             const coverPath = `${COVER_DIR}/${g.id}.png`;
@@ -556,7 +531,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
         return updated;
       });
     } catch {}
-  }, [persistDownloadedGames, downloadCoverArt]);
+  }, [persistDownloadedGames]);
 
   const getLocalCoverPath = useCallback((gameId: number): string => {
     return `${COVER_DIR}/${gameId}.png`;

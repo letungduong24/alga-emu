@@ -29,9 +29,15 @@ class GameActivity : AppCompatActivity() {
     private val desmumeLayouts = arrayOf(
         "left/right", "top/bottom", "top only", "bottom only", "hybrid/top",
     )
+    // Citra (3DS) layouts
+    private val citraLayouts = arrayOf(
+        "Default Top-Bottom Screen", "Single Screen Only",
+        "Large Screen, Small Screen", "Side by Side",
+    )
     private var screenLayouts = melondsLayouts
     private var screenLayoutVar = "melonds_screen_layout"
     private var isMelonDS = true
+    var is3DS = false
     var currentLayoutIndex = 0
     var currentStateSlot = 0
     private var romBaseName: String = ""
@@ -165,6 +171,13 @@ class GameActivity : AppCompatActivity() {
             screenLayoutVar = "desmume_screens_layout"
         }
 
+        is3DS = corePath.contains("citra", ignoreCase = true)
+        if (is3DS) {
+            screenLayouts = citraLayouts
+            screenLayoutVar = "citra_layout_option"
+        }
+        val hasDualScreen = isNDS || is3DS
+
         val viewData = GLRetroViewData(this).apply {
             coreFilePath = corePath
             gameFilePath = romPath
@@ -188,6 +201,12 @@ class GameActivity : AppCompatActivity() {
                     )
                 }
             }
+            if (is3DS) {
+                variables = arrayOf(
+                    Variable("citra_layout_option", screenLayouts[0]),
+                    Variable("citra_use_hw_renderer", "enabled"),
+                )
+            }
         }
 
         retroView = GLRetroView(this, viewData)
@@ -207,7 +226,7 @@ class GameActivity : AppCompatActivity() {
                     if (savedSpeed > 1) retroView?.frameSpeed = savedSpeed
 
                     val savedLayout = prefs.getInt("layout", 0)
-                    if (savedLayout > 0 && isNDS) {
+                    if (savedLayout > 0 && hasDualScreen) {
                         currentLayoutIndex = savedLayout
                         applyScreenLayout(savedLayout)
                     }
@@ -237,6 +256,7 @@ class GameActivity : AppCompatActivity() {
         touchControls.retroView = retroView
         touchControls.gameActivity = this
         touchControls.isNDS = isNDS
+        touchControls.is3DS = is3DS
         container.addView(touchControls, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
@@ -356,7 +376,7 @@ class GameActivity : AppCompatActivity() {
         return retroView?.onKeyDown(keyCode, event) ?: super.onKeyDown(keyCode, event)
     }
 
-    private fun showExitConfirmDialog() {
+    fun showExitConfirmDialog() {
         val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("Thoát game")
             .setMessage("Bạn có muốn thoát game không?")
@@ -414,6 +434,25 @@ class GameActivity : AppCompatActivity() {
         }
 
         handler.postDelayed(pollRunnable, pollInterval)
+    }
+
+    fun restartGame() {
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Chạy lại game")
+            .setMessage("Game sẽ được khởi động lại. Tiến trình chưa lưu sẽ mất.")
+            .setPositiveButton("Chạy lại") { _, _ ->
+                val newIntent = android.content.Intent(this, GameActivity::class.java)
+                newIntent.putExtra("CORE_PATH", intent.getStringExtra("CORE_PATH"))
+                newIntent.putExtra("ROM_PATH", intent.getStringExtra("ROM_PATH"))
+                newIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                startActivity(newIntent)
+                finish()
+            }
+            .setNegativeButton("Hủy") { d, _ -> d.dismiss() }
+            .setCancelable(false)
+            .create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.background_dark)
+        dialog.show()
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {

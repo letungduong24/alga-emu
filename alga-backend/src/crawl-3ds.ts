@@ -16,35 +16,14 @@ interface ArchiveFile {
 function cleanGameName(filename: string): string {
   return filename
     .replace(/\.zip$/i, "")
-    .replace(/\s*\(DSi Enhanced\)/gi, "")
-    .replace(/\s*\(USA\)/gi, "")
-    .replace(/\s*\(Europe\)/gi, "")
-    .replace(/\s*\(Japan\)/gi, "")
-    .replace(/\s*\(Korea\)/gi, "")
-    .replace(/\s*\(Taiwan\)/gi, "")
-    .replace(/\s*\(Australia\)/gi, "")
-    .replace(/\s*\(World\)/gi, "")
-    .replace(/\s*\(Demo\)/gi, "")
-    .replace(/\s*\(Kiosk\)/gi, "")
+    // Remove language tags like (En,Ja,Fr,De,Es,It,Ko)
+    .replace(/\s*\((?:En|Fr|De|Es|It|Nl|Pt|Ru|Sv|No|Da|Fi|Ja|Zh|Ko|Ar|Tr|El)(?:,[A-Za-z]+)*\)/gi, "")
+    // Remove revision tags like (Rev 2)
     .replace(/\s*\(Rev \d+\)/gi, "")
-    .replace(/\s*\(En[^)]*\)/gi, "")
-    .replace(/\s*\(Fr[^)]*\)/gi, "")
-    .replace(/\s*\(De[^)]*\)/gi, "")
-    .replace(/\s*\(Es[^)]*\)/gi, "")
-    .replace(/\s*\(It[^)]*\)/gi, "")
-    .replace(/\s*\(Nl[^)]*\)/gi, "")
-    .replace(/\s*\(Pt[^)]*\)/gi, "")
-    .replace(/\s*\(Ru[^)]*\)/gi, "")
-    .replace(/\s*\(Sv[^)]*\)/gi, "")
-    .replace(/\s*\(No[^)]*\)/gi, "")
-    .replace(/\s*\(Da[^)]*\)/gi, "")
-    .replace(/\s*\(Fi[^)]*\)/gi, "")
-    .replace(/\s*\(Ja[^)]*\)/gi, "")
-    .replace(/\s*\(Zh[^)]*\)/gi, "")
-    .replace(/\s*\(Ko[^)]*\)/gi, "")
-    .replace(/\s*\(Ar[^)]*\)/gi, "")
-    .replace(/\s*\(Tr[^)]*\)/gi, "")
-    .replace(/\s*\(El[^)]*\)/gi, "")
+    // Remove misc tags
+    .replace(/\s*\(DSi Enhanced\)/gi, "")
+    .replace(/\s*\(Demo\)/gi, " [Demo]")
+    .replace(/\s*\(Kiosk\)/gi, "")
     .trim();
 }
 
@@ -68,20 +47,26 @@ async function crawl3DS() {
 
   const repo = AppDataSource.getRepository(Game);
   let inserted = 0;
-  let skipped = 0;
+  let updated = 0;
 
   for (const file of zipFiles) {
     // Strip the "all/" prefix from the filename for clean display
     const cleanFilename = file.name.replace(/^all\//, "");
+    const newName = cleanGameName(cleanFilename);
 
     const existing = await repo.findOneBy({ filename: cleanFilename });
     if (existing) {
-      skipped++;
+      // Update name/size/url if changed
+      existing.name = newName;
+      existing.size = parseInt(file.size) || 0;
+      existing.downloadUrl = `${ARCHIVE_BASE}/${encodeURIComponent(cleanFilename)}`;
+      await repo.save(existing);
+      updated++;
       continue;
     }
 
     const game = repo.create({
-      name: cleanGameName(cleanFilename),
+      name: newName,
       filename: cleanFilename,
       platform: "3ds",
       size: parseInt(file.size) || 0,
@@ -92,7 +77,7 @@ async function crawl3DS() {
     inserted++;
   }
 
-  console.log(`✅ Done! Inserted: ${inserted}, Skipped: ${skipped}`);
+  console.log(`✅ Done! Inserted: ${inserted}, Updated: ${updated}`);
   console.log(`📊 Total 3DS games in DB: ${await repo.count({ where: { platform: "3ds" } })}`);
 
   await AppDataSource.destroy();

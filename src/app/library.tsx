@@ -503,118 +503,39 @@ export default function LibraryScreen() {
   );
 }
 
-// === Cover art URL logic — improved matching ===
-const THUMB_BASES: Record<string, string> = {
-  nds: 'https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Nintendo_DS/master/Named_Boxarts',
-  '3ds': 'https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Nintendo_3DS/master/Named_Boxarts',
-  gba: 'https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Game_Boy_Advance/master/Named_Boxarts',
-};
-
-function getCoverCandidates(filename: string, platform: string): string[] {
-  const baseName = filename.replace(/\.zip$/i, '');
-  const thumbBase = THUMB_BASES[platform] || THUMB_BASES['nds'];
-  const results: string[] = [];
-
-  // 1. Exact name
-  results.push(`${thumbBase}/${encodeURIComponent(baseName)}.png`);
-
-  // 2. Common region suffixes
-  const regions = [
-    '(USA)', '(Europe)', '(USA, Europe)', '(Japan)',
-    '(USA) (En,Fr,Es)', '(Europe) (En,Fr,De,Es,It)',
-    '(USA) (En,Fr,De,Es,It)', '(Japan, USA)', '(World)',
-  ];
-  for (const r of regions) {
-    results.push(`${thumbBase}/${encodeURIComponent(`${baseName} ${r}`)}.png`);
-  }
-
-  // 3. Strip existing parenthetical tags and try clean name + regions
-  const cleanName = baseName.replace(/\s*\([^)]*\)/g, '').trim();
-  if (cleanName !== baseName) {
-    results.push(`${thumbBase}/${encodeURIComponent(cleanName)}.png`);
-    for (const r of regions.slice(0, 4)) {
-      results.push(`${thumbBase}/${encodeURIComponent(`${cleanName} ${r}`)}.png`);
-    }
-  }
-
-  // 4. Try with " - " separator (libretro naming convention)
-  // e.g. "Pokemon White Version 2" → "Pokemon - White Version 2"
-  const words = cleanName.split(' ');
-  if (words.length >= 2) {
-    const dashName = `${words[0]} - ${words.slice(1).join(' ')}`;
-    for (const r of regions.slice(0, 4)) {
-      results.push(`${thumbBase}/${encodeURIComponent(`${dashName} ${r}`)}.png`);
-    }
-    results.push(`${thumbBase}/${encodeURIComponent(dashName)}.png`);
-  }
-
-  // 5. Try without common suffixes like "(DSi Enhanced)", "(Rev X)", etc.
-  const stripped = cleanName
-    .replace(/\s*(DSi Enhanced|Rev \d+|Virtual Console|v[\d.]+)/gi, '')
-    .trim();
-  if (stripped !== cleanName && stripped.length > 3) {
-    for (const r of regions.slice(0, 3)) {
-      results.push(`${thumbBase}/${encodeURIComponent(`${stripped} ${r}`)}.png`);
-    }
-  }
-
-  // Dedupe
-  return [...new Set(results)];
-}
-
 const COVER_DIR = '/storage/emulated/0/Alga/covers';
 
 const CoverImage = React.memo(({ game, style }: { game: ApiGame; style?: any }) => {
-  const [source, setSource] = useState<string | null>(null);
-  const [regionIdx, setRegionIdx] = useState(0);
-  const [failed, setFailed] = useState(false);
-  const [checkedLocal, setCheckedLocal] = useState(false);
-
-  const candidates = useMemo(() => getCoverCandidates(game.filename, game.platform), [game.filename, game.platform]);
+  const [hasLocal, setHasLocal] = useState<boolean | null>(null);
   const localPath = `${COVER_DIR}/${game.id}.png`;
 
   useEffect(() => {
-    fileExists(localPath).then((exists) => {
-      if (exists) {
-        setSource(`file://${localPath}`);
-      } else {
-        setSource(candidates[0]);
-      }
-      setCheckedLocal(true);
-    });
+    fileExists(localPath).then((exists) => setHasLocal(exists));
   }, [localPath]);
 
-  if (!checkedLocal) return null;
+  if (hasLocal === null) return null;
 
-  if (failed) {
+  if (hasLocal) {
     return (
-      <View className="w-full h-full items-center justify-center bg-white/5" style={style}>
-        <Text className="text-white/60 text-5xl font-black">
-          {game.name.charAt(0).toUpperCase()}
-        </Text>
-        <Text className="text-white/30 text-xs mt-1 px-3 text-center" numberOfLines={2}>
-          {game.name}
-        </Text>
-      </View>
+      <Image
+        source={{ uri: `file://${localPath}` }}
+        className="w-full h-full"
+        resizeMode="cover"
+        style={style}
+        onError={() => setHasLocal(false)}
+      />
     );
   }
 
   return (
-    <Image
-      source={{ uri: source! }}
-      className="w-full h-full"
-      resizeMode="cover"
-      style={style}
-      onError={() => {
-        const nextIdx = regionIdx + 1;
-        if (nextIdx < candidates.length) {
-          setRegionIdx(nextIdx);
-          setSource(candidates[nextIdx]);
-        } else {
-          setFailed(true);
-        }
-      }}
-    />
+    <View className="w-full h-full items-center justify-center bg-white/5" style={style}>
+      <Text className="text-white/60 text-5xl font-black">
+        {game.name.charAt(0).toUpperCase()}
+      </Text>
+      <Text className="text-white/30 text-xs mt-1 px-3 text-center" numberOfLines={2}>
+        {game.name}
+      </Text>
+    </View>
   );
 });
 

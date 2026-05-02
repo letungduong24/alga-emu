@@ -16,10 +16,12 @@ interface ArchiveFile {
 function cleanGameName(filename: string): string {
   return filename
     .replace(/\.zip$/i, "")
+    // Remove language tags like (En,Ja,Fr,De,Es,It,Ko)
+    .replace(/\s*\((?:En|Fr|De|Es|It|Nl|Pt|Ru|Sv|No|Da|Fi|Ja|Zh|Ko|Ar|Tr|El)(?:,[A-Za-z]+)*\)/gi, "")
+    // Remove revision tags
+    .replace(/\s*\(Rev \d+\)/gi, "")
     .replace(/\s*\(DSi Enhanced\)/gi, "")
-    .replace(/\s*\(USA\)/gi, "")
-    .replace(/\s*\(Europe\)/gi, "")
-    .replace(/\s*\(Japan\)/gi, "")
+    .replace(/\s*\(Demo\)/gi, " [Demo]")
     .trim();
 }
 
@@ -42,17 +44,23 @@ async function crawl() {
 
   const repo = AppDataSource.getRepository(Game);
   let inserted = 0;
-  let skipped = 0;
+  let updated = 0;
 
   for (const file of zipFiles) {
+    const newName = cleanGameName(file.name);
+
     const existing = await repo.findOneBy({ filename: file.name });
     if (existing) {
-      skipped++;
+      existing.name = newName;
+      existing.size = parseInt(file.size) || 0;
+      existing.downloadUrl = `${ARCHIVE_BASE}/${encodeURIComponent(file.name)}`;
+      await repo.save(existing);
+      updated++;
       continue;
     }
 
     const game = repo.create({
-      name: cleanGameName(file.name),
+      name: newName,
       filename: file.name,
       platform: "nds",
       size: parseInt(file.size) || 0,
@@ -63,7 +71,7 @@ async function crawl() {
     inserted++;
   }
 
-  console.log(`✅ Done! Inserted: ${inserted}, Skipped: ${skipped}`);
+  console.log(`✅ Done! Inserted: ${inserted}, Updated: ${updated}`);
   console.log(`📊 Total games in DB: ${await repo.count()}`);
 
   await AppDataSource.destroy();

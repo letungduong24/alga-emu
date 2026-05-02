@@ -20,12 +20,23 @@ class TouchControlsOverlay @JvmOverloads constructor(
     var retroView: GLRetroView? = null
     var gameActivity: GameActivity? = null
     var isNDS: Boolean = false
+    var is3DS: Boolean = false
 
     private val prefs: SharedPreferences = context.getSharedPreferences("alga_controls", Context.MODE_PRIVATE)
     private var buttonScale: Float = prefs.getFloat("button_scale", 1.0f)
     private var currentSpeed: Int = prefs.getInt("speed", 1)
     private var savedLayoutIndex: Int = prefs.getInt("layout", 0)
     private var menuOpen: Boolean = false
+
+    // === 3DS Joystick ===
+    data class VJoystick(
+        var cx: Float = 0f, var cy: Float = 0f,
+        var outerR: Float = 0f, var thumbR: Float = 0f,
+        var nx: Float = 0f, var ny: Float = 0f,
+        var pointerId: Int = -1, val motionSource: Int
+    )
+    private val circlePad = VJoystick(motionSource = GLRetroView.MOTION_SOURCE_ANALOG_LEFT)
+    private val cStick = VJoystick(motionSource = GLRetroView.MOTION_SOURCE_ANALOG_RIGHT)
 
     // === Paint ===
     private val btnFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -84,6 +95,10 @@ class TouchControlsOverlay @JvmOverloads constructor(
         VButton("select", "SELECT", KeyEvent.KEYCODE_BUTTON_SELECT),
     )
 
+    // 3DS extra buttons (added dynamically)
+    private val zlButton = VButton("zl", "ZL", KeyEvent.KEYCODE_BUTTON_L2)
+    private val zrButton = VButton("zr", "ZR", KeyEvent.KEYCODE_BUTTON_R2)
+
     private val menuButton = VButton("menu", "⚙", -1)
 
     data class MenuItem(val id: String, var label: String, var bounds: RectF = RectF())
@@ -96,6 +111,12 @@ class TouchControlsOverlay @JvmOverloads constructor(
         MenuItem("l0", "Trái / Phải"), MenuItem("l1", "Trên / Dưới"),
         MenuItem("l2", "Chỉ màn trên"), MenuItem("l3", "Chỉ màn dưới"), MenuItem("l4", "Kết hợp"),
     )
+    private val layout3dsItems = listOf(
+        MenuItem("l0", "Trên / Dưới"), MenuItem("l1", "Chỉ 1 màn"),
+        MenuItem("l2", "Lớn / Nhỏ"), MenuItem("l3", "Cạnh nhau"),
+    )
+    private val exitMenuItem = MenuItem("exit_game", "🚪 Thoát")
+    private val restartMenuItem = MenuItem("restart_game", "🔄 Chạy lại")
 
 
     private var menuPanelRect = RectF()
@@ -158,6 +179,26 @@ class TouchControlsOverlay @JvmOverloads constructor(
             w * 0.5f + gearS, sY + sH
         )
 
+        // === 3DS: ZL/ZR above L/R, Circle Pad, C-Stick ===
+        if (is3DS) {
+            val zlzrH = u * 0.75f
+            val zlzrY = topM + lrH + u * 0.3f
+            zlButton.bounds.set(topM, zlzrY, topM + lrW, zlzrY + zlzrH)
+            zrButton.bounds.set(w - topM - lrW, zlzrY, w - topM, zlzrY + zlzrH)
+
+            // Circle Pad = joystick at D-pad area
+            circlePad.outerR = u * 2.2f
+            circlePad.thumbR = u * 0.7f
+            circlePad.cx = dCX
+            circlePad.cy = dCY
+
+            // C-Stick = small joystick left of ABXY
+            cStick.outerR = u * 1.1f
+            cStick.thumbR = u * 0.4f
+            cStick.cx = fCX - fStep - u * 2.0f
+            cStick.cy = fCY
+        }
+
         layoutMenuPanel(w, h)
     }
 
@@ -170,6 +211,8 @@ class TouchControlsOverlay @JvmOverloads constructor(
         val titleH = itemH * 1.1f
         val padY = 14f
         val padX = panelW * 0.05f
+        val hasDualScreen = isNDS || is3DS
+        val activeLayoutItems = if (is3DS) layout3dsItems else layoutItems
 
         // Đếm nội dung: speed + scale + save/load state + layout(NDS) + cheats
         var contentH = titleH + padY
@@ -177,10 +220,12 @@ class TouchControlsOverlay @JvmOverloads constructor(
         contentH += sectionLabelH + sectionGap + itemH + gap  // Scale
         contentH += sectionLabelH + sectionGap + itemH + gap  // Save state (3 cols)
         contentH += sectionLabelH + sectionGap + itemH + gap  // Load state (3 cols)
-        if (isNDS) {
-            contentH += sectionLabelH + sectionGap + layoutItems.size * (itemH + gap)
+        if (hasDualScreen) {
+            contentH += sectionLabelH + sectionGap + activeLayoutItems.size * (itemH + gap)
         }
         // Cheats button (single item)
+        contentH += sectionLabelH + sectionGap + itemH + gap
+        // Exit / Restart
         contentH += sectionLabelH + sectionGap + itemH + gap
         contentH += padY + sectionLabelH  // Hint
 
@@ -224,10 +269,10 @@ class TouchControlsOverlay @JvmOverloads constructor(
         }
         curY += itemH + gap
 
-        // Layout (NDS)
-        if (isNDS) {
+        // Layout (NDS or 3DS)
+        if (hasDualScreen && activeLayoutItems.isNotEmpty()) {
             curY += sectionLabelH + sectionGap
-            for (item in layoutItems) {
+            for (item in activeLayoutItems) {
                 item.bounds.set(panelX + padX, curY, panelX + panelW - padX, curY + itemH)
                 curY += itemH + gap
             }
@@ -239,14 +284,23 @@ class TouchControlsOverlay @JvmOverloads constructor(
         cheatsMenuItem.label = if (cheatsCount > 0) "Cheats ($cheatsCount)" else "Cheats"
         cheatsMenuItem.bounds.set(panelX + padX, curY, panelX + panelW - padX, curY + itemH)
         curY += itemH + gap
+
+        // Exit / Restart: 2 columns
+        curY += sectionLabelH + sectionGap
+        val colW2er = (panelW - padX * 2f - gap) / 2f
+        exitMenuItem.bounds.set(panelX + padX, curY, panelX + padX + colW2er, curY + itemH)
+        restartMenuItem.bounds.set(panelX + padX + colW2er + gap, curY, panelX + panelW - padX, curY + itemH)
+        curY += itemH + gap
     }
 
     private val cheatsMenuItem = MenuItem("cheats_open", "Cheats")
 
     private fun getActiveMenuItems(): List<MenuItem> {
         val base = speedItems + scaleItems + saveStateItems + loadStateItems
-        val withLayout = if (isNDS) base + layoutItems else base
-        return withLayout + cheatsMenuItem
+        val activeLayoutItems = if (is3DS) layout3dsItems else layoutItems
+        val hasDualScreen = isNDS || is3DS
+        val withLayout = if (hasDualScreen) base + activeLayoutItems else base
+        return withLayout + cheatsMenuItem + exitMenuItem + restartMenuItem
     }
 
     private fun setCircle(btn: VButton, cx: Float, cy: Float, r: Float) {
@@ -257,13 +311,42 @@ class TouchControlsOverlay @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         // Luôn vẽ nút (kể cả khi menu mở → xem resize realtime)
-        for (btn in gameButtons) drawGameButton(canvas, btn)
+        if (is3DS) {
+            // Draw Circle Pad & C-Stick joysticks
+            drawJoystick(canvas, circlePad, "Circle")
+            drawJoystick(canvas, cStick, "C")
+            // Draw ZL/ZR
+            drawGameButton(canvas, zlButton)
+            drawGameButton(canvas, zrButton)
+            // ABXY, L, R, Start, Select (skip D-pad indices 0-3)
+            for (i in 4 until gameButtons.size) drawGameButton(canvas, gameButtons[i])
+        } else {
+            for (btn in gameButtons) drawGameButton(canvas, btn)
+        }
         drawGearButton(canvas)
 
         if (menuOpen) {
             canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), menuDimPaint)
             drawMenuPanel(canvas)
         }
+    }
+
+    private fun drawJoystick(canvas: Canvas, js: VJoystick, label: String) {
+        // Outer ring
+        canvas.drawCircle(js.cx, js.cy, js.outerR, btnFillPaint)
+        canvas.drawCircle(js.cx, js.cy, js.outerR, btnStrokePaint)
+        // Label
+        val saved = textPaint.textSize
+        textPaint.textSize = js.thumbR * 0.5f
+        val labelPaint = Paint(textPaint).apply { color = Color.argb(50, 255, 255, 255) }
+        canvas.drawText(label, js.cx, js.cy + js.outerR - js.thumbR * 0.5f, labelPaint)
+        textPaint.textSize = saved
+        // Thumb at current position
+        val tx = js.cx + js.nx * (js.outerR - js.thumbR)
+        val ty = js.cy + js.ny * (js.outerR - js.thumbR)
+        val fill = if (js.pointerId >= 0) btnPressedPaint else btnFillPaint
+        canvas.drawCircle(tx, ty, js.thumbR, fill)
+        canvas.drawCircle(tx, ty, js.thumbR, btnStrokePaint)
     }
 
     private fun drawGameButton(canvas: Canvas, btn: VButton) {
@@ -337,10 +420,12 @@ class TouchControlsOverlay @JvmOverloads constructor(
             drawMenuItem(canvas, item, hasData)
         }
 
-        // Layout (NDS)
-        if (isNDS && layoutItems.isNotEmpty()) {
-            canvas.drawText("Bố cục màn hình", padX, layoutItems[0].bounds.top - labelSize * 0.3f, menuLabelPaint)
-            for ((i, item) in layoutItems.withIndex())
+        // Layout (NDS or 3DS)
+        val hasDualScreen = isNDS || is3DS
+        val activeLayoutItems = if (is3DS) layout3dsItems else layoutItems
+        if (hasDualScreen && activeLayoutItems.isNotEmpty()) {
+            canvas.drawText("Bố cục màn hình", padX, activeLayoutItems[0].bounds.top - labelSize * 0.3f, menuLabelPaint)
+            for ((i, item) in activeLayoutItems.withIndex())
                 drawMenuItem(canvas, item, gameActivity?.currentLayoutIndex == i)
         }
 
@@ -348,6 +433,11 @@ class TouchControlsOverlay @JvmOverloads constructor(
         canvas.drawText("Cheats", padX, cheatsMenuItem.bounds.top - labelSize * 0.3f, menuLabelPaint)
         val cheatsCount = gameActivity?.cheats?.size ?: 0
         drawMenuItem(canvas, cheatsMenuItem, cheatsCount > 0)
+
+        // Exit / Restart
+        canvas.drawText("Điều khiển", padX, exitMenuItem.bounds.top - labelSize * 0.3f, menuLabelPaint)
+        drawMenuItem(canvas, exitMenuItem, false)
+        drawMenuItem(canvas, restartMenuItem, false)
 
         // Hint
         menuHintPaint.textSize = labelSize
@@ -368,24 +458,85 @@ class TouchControlsOverlay @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val x = event.getX(event.actionIndex); val y = event.getY(event.actionIndex)
+                val ai = event.actionIndex
+                val x = event.getX(ai); val y = event.getY(ai)
+                val pid = event.getPointerId(ai)
                 if (menuButton.bounds.contains(x, y)) { openMenu(); return true }
-                if (!gameButtons.any { it.bounds.contains(x, y) }) return false
-                handlePress(event.getPointerId(event.actionIndex), x, y)
+                // 3DS: joystick priority
+                if (is3DS) {
+                    if (tryJoystickGrab(circlePad, pid, x, y)) return true
+                    if (tryJoystickGrab(cStick, pid, x, y)) return true
+                }
+                val allBtns = if (is3DS) gameButtons.subList(4, gameButtons.size) + listOf(zlButton, zrButton) else gameButtons
+                if (!allBtns.any { it.bounds.contains(x, y) }) return false
+                handlePress(pid, x, y)
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
-                val i = event.actionIndex
-                handlePress(event.getPointerId(i), event.getX(i), event.getY(i))
+                val ai = event.actionIndex
+                val x = event.getX(ai); val y = event.getY(ai)
+                val pid = event.getPointerId(ai)
+                if (is3DS) {
+                    if (tryJoystickGrab(circlePad, pid, x, y)) return true
+                    if (tryJoystickGrab(cStick, pid, x, y)) return true
+                }
+                handlePress(pid, x, y)
             }
             MotionEvent.ACTION_MOVE -> {
-                for (i in 0 until event.pointerCount)
-                    handleMove(event.getPointerId(i), event.getX(i), event.getY(i))
+                for (i in 0 until event.pointerCount) {
+                    val pid = event.getPointerId(i)
+                    val x = event.getX(i); val y = event.getY(i)
+                    if (is3DS && updateJoystick(circlePad, pid, x, y)) continue
+                    if (is3DS && updateJoystick(cStick, pid, x, y)) continue
+                    handleMove(pid, x, y)
+                }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP ->
-                handleRelease(event.getPointerId(event.actionIndex))
-            MotionEvent.ACTION_CANCEL -> releaseAll()
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
+                val pid = event.getPointerId(event.actionIndex)
+                if (is3DS && releaseJoystick(circlePad, pid)) { /* ok */ }
+                else if (is3DS && releaseJoystick(cStick, pid)) { /* ok */ }
+                else handleRelease(pid)
+            }
+            MotionEvent.ACTION_CANCEL -> { releaseAll(); releaseAllJoysticks() }
         }
         return true
+    }
+
+    // === Joystick helpers ===
+    private fun tryJoystickGrab(js: VJoystick, pid: Int, x: Float, y: Float): Boolean {
+        if (js.pointerId >= 0) return false
+        val dx = x - js.cx; val dy = y - js.cy
+        if (dx * dx + dy * dy > js.outerR * js.outerR * 1.6f) return false
+        js.pointerId = pid
+        updateJoystickValues(js, x, y)
+        return true
+    }
+    private fun updateJoystick(js: VJoystick, pid: Int, x: Float, y: Float): Boolean {
+        if (js.pointerId != pid) return false
+        updateJoystickValues(js, x, y)
+        return true
+    }
+    private fun updateJoystickValues(js: VJoystick, x: Float, y: Float) {
+        val dx = x - js.cx; val dy = y - js.cy
+        val maxD = js.outerR - js.thumbR
+        js.nx = (dx / maxD).coerceIn(-1f, 1f)
+        js.ny = (dy / maxD).coerceIn(-1f, 1f)
+        retroView?.sendMotionEvent(js.motionSource, js.nx, js.ny, 0)
+        invalidate()
+    }
+    private fun releaseJoystick(js: VJoystick, pid: Int): Boolean {
+        if (js.pointerId != pid) return false
+        js.pointerId = -1; js.nx = 0f; js.ny = 0f
+        retroView?.sendMotionEvent(js.motionSource, 0f, 0f, 0)
+        invalidate()
+        return true
+    }
+    private fun releaseAllJoysticks() {
+        listOf(circlePad, cStick).forEach { js ->
+            if (js.pointerId >= 0) {
+                js.pointerId = -1; js.nx = 0f; js.ny = 0f
+                retroView?.sendMotionEvent(js.motionSource, 0f, 0f, 0)
+            }
+        }
     }
 
     private fun handleMenuTouch(event: MotionEvent): Boolean {
@@ -409,7 +560,8 @@ class TouchControlsOverlay @JvmOverloads constructor(
 
     private fun handlePress(pid: Int, x: Float, y: Float) {
         val pressed = mutableSetOf<String>()
-        for (btn in gameButtons) {
+        val allBtns = if (is3DS) gameButtons.subList(4, gameButtons.size) + listOf(zlButton, zrButton) else gameButtons
+        for (btn in allBtns) {
             if (btn.bounds.contains(x, y) && !btn.isPressed) {
                 btn.isPressed = true; retroView?.sendKeyEvent(KeyEvent.ACTION_DOWN, btn.keyCode, 0); pressed.add(btn.id)
             }
@@ -420,13 +572,14 @@ class TouchControlsOverlay @JvmOverloads constructor(
     private fun handleMove(pid: Int, x: Float, y: Float) {
         val prev = pointerButtons[pid] ?: mutableSetOf()
         val now = mutableSetOf<String>()
-        for (btn in gameButtons) { if (btn.bounds.contains(x, y)) now.add(btn.id) }
+        val allBtns = if (is3DS) gameButtons.subList(4, gameButtons.size) + listOf(zlButton, zrButton) else gameButtons
+        for (btn in allBtns) { if (btn.bounds.contains(x, y)) now.add(btn.id) }
         for (id in now - prev) {
-            val btn = gameButtons.find { it.id == id } ?: continue
+            val btn = allBtns.find { it.id == id } ?: continue
             if (!btn.isPressed) { btn.isPressed = true; retroView?.sendKeyEvent(KeyEvent.ACTION_DOWN, btn.keyCode, 0) }
         }
         for (id in prev - now) {
-            val btn = gameButtons.find { it.id == id } ?: continue
+            val btn = allBtns.find { it.id == id } ?: continue
             if (!pointerButtons.any { (p, s) -> p != pid && id in s }) {
                 btn.isPressed = false; retroView?.sendKeyEvent(KeyEvent.ACTION_UP, btn.keyCode, 0)
             }
@@ -436,8 +589,9 @@ class TouchControlsOverlay @JvmOverloads constructor(
 
     private fun handleRelease(pid: Int) {
         val pressed = pointerButtons.remove(pid) ?: return
+        val allBtns = if (is3DS) gameButtons.subList(4, gameButtons.size) + listOf(zlButton, zrButton) else gameButtons
         for (id in pressed) {
-            val btn = gameButtons.find { it.id == id } ?: continue
+            val btn = allBtns.find { it.id == id } ?: continue
             if (!pointerButtons.any { (_, s) -> id in s }) {
                 btn.isPressed = false; retroView?.sendKeyEvent(KeyEvent.ACTION_UP, btn.keyCode, 0)
             }
@@ -448,6 +602,11 @@ class TouchControlsOverlay @JvmOverloads constructor(
     private fun releaseAll() {
         for (btn in gameButtons) {
             if (btn.isPressed) { btn.isPressed = false; retroView?.sendKeyEvent(KeyEvent.ACTION_UP, btn.keyCode, 0) }
+        }
+        if (is3DS) {
+            for (btn in listOf(zlButton, zrButton)) {
+                if (btn.isPressed) { btn.isPressed = false; retroView?.sendKeyEvent(KeyEvent.ACTION_UP, btn.keyCode, 0) }
+            }
         }
         pointerButtons.clear(); invalidate()
     }
@@ -468,6 +627,8 @@ class TouchControlsOverlay @JvmOverloads constructor(
             "l0" -> setLayout(0); "l1" -> setLayout(1)
             "l2" -> setLayout(2); "l3" -> setLayout(3); "l4" -> setLayout(4)
             "cheats_open" -> { closeMenu(); showCheatsDialog() }
+            "exit_game" -> { closeMenu(); gameActivity?.showExitConfirmDialog() }
+            "restart_game" -> { closeMenu(); gameActivity?.restartGame() }
         }
         invalidate()
     }

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Image } from 'react-native';
+import React from 'react';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { DownloadCloud, Loader2, CheckCircle2, Gamepad2, X, RotateCcw } from 'lucide-react-native';
 import { ApiGame } from '@/hooks/useGameApi';
 import { Emulator } from '@/constants/emulators';
@@ -9,7 +9,6 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
-import { fileExists } from '../../modules/app-launcher';
 import { useDownloadManager } from '@/hooks/useDownloadManager';
 import { useEffect } from 'react';
 
@@ -33,45 +32,7 @@ function formatSpeed(bytesPerSec: number): string {
   return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
 }
 
-// === Cover Art ===
-const THUMB_BASE = 'https://raw.githubusercontent.com/libretro-thumbnails/Nintendo_-_Nintendo_DS/master/Named_Boxarts';
-const REGIONS = ['(USA)', '(Europe)', '(USA) (En,Fr,Es)', '(Europe) (En,Fr,De,Es,It)', '(Japan)', '(USA, Europe)'];
 
-const CoverArt = React.memo(({ filename }: { filename: string }) => {
-  const baseName = filename.replace(/\.zip$/i, '');
-  const [regionIdx, setRegionIdx] = useState(0);
-  const [failed, setFailed] = useState(false);
-
-  const candidates = React.useMemo(() => {
-    const list = REGIONS.map((r) => `${THUMB_BASE}/${encodeURIComponent(`${baseName} ${r}`)}.png`);
-    list.push(`${THUMB_BASE}/${encodeURIComponent(baseName)}.png`);
-    return list;
-  }, [baseName]);
-
-  if (failed) {
-    const letter = baseName.charAt(0).toUpperCase();
-    return (
-      <View className="w-20 h-20 bg-white/10 items-center justify-center">
-        <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#00f2ff' }}>{letter}</Text>
-      </View>
-    );
-  }
-
-  return (
-    <Image
-      source={{ uri: candidates[regionIdx] }}
-      className="w-20 h-20"
-      resizeMode="cover"
-      onError={() => {
-        if (regionIdx < candidates.length - 1) {
-          setRegionIdx((i) => i + 1);
-        } else {
-          setFailed(true);
-        }
-      }}
-    />
-  );
-});
 
 // === Main Card ===
 export const ApiGameCard = ({ game, emulator, index }: Props) => {
@@ -136,9 +97,6 @@ export const ApiGameCard = ({ game, emulator, index }: Props) => {
         className={`flex-row items-center ${bgClass} rounded-2xl overflow-hidden border ${borderClass} mb-3`}
         style={{ opacity: downloaded ? 0.6 : 1 }}
       >
-        {/* Cover art */}
-        <CoverArt filename={game.filename} />
-
         {/* Game info */}
         <View className="flex-1 px-3 py-2.5">
           <Text className="text-white text-base font-bold mb-0.5" numberOfLines={1}>
