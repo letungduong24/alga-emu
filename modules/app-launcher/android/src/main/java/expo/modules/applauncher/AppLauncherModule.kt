@@ -1,13 +1,13 @@
 package expo.modules.applauncher
 
+import android.app.DownloadManager
 import android.content.Context
-import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.database.Cursor
 import android.net.Uri
 import android.os.Environment
-import android.os.StrictMode
-import android.provider.Settings
+import androidx.core.content.FileProvider
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -109,101 +109,146 @@ class AppLauncherModule : Module() {
       destFile.absolutePath
     }
 
-    // === LAUNCH RETROARCH — ĐẦY ĐỦ EXTRAS NHƯ RETROARCH TỰ LÀM ===
-    // Tham khảo: MainMenuActivity.startRetroActivity()
-    AsyncFunction("launchRetroArch") { packageName: String, activityName: String, romPath: String, corePath: String ->
-      val context = appContext.reactContext ?: throw Exception("Context is null")
-
-      val romFile = File(romPath)
-      if (!romFile.exists()) {
-        throw Exception("ROM not found: $romPath")
+    // === Xoá file/thư mục ===
+    AsyncFunction("deleteFileOrDir") { path: String ->
+      val target = File(path)
+      if (target.exists()) {
+        target.deleteRecursively()
       }
-
-      val coreFile = File(corePath)
-      if (!coreFile.exists()) {
-        throw Exception("Core not found: $corePath")
-      }
-
-      // Lấy thông tin package của RetroArch
-      val raPackageInfo = try {
-        context.packageManager.getApplicationInfo(packageName, 0)
-      } catch (e: PackageManager.NameNotFoundException) {
-        throw Exception("RetroArch not installed: $packageName")
-      }
-
-      val dataDir = raPackageInfo.dataDir                    // /data/data/com.retroarch.aarch64
-      val sourceDir = raPackageInfo.sourceDir                // /data/app/.../base.apk
-      val sdcard = Environment.getExternalStorageDirectory().absolutePath  // /storage/emulated/0
-      val external = "$sdcard/Android/data/$packageName/files"
-      val configFile = "$external/retroarch.cfg"
-
-      // Lấy IME hiện tại
-      val ime = Settings.Secure.getString(context.contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD) ?: ""
-
-      android.util.Log.d("AppLauncher", "=== Launch RetroArch (FULL EXTRAS) ===")
-      android.util.Log.d("AppLauncher", "ROM: $romPath")
-      android.util.Log.d("AppLauncher", "LIBRETRO: $corePath")
-      android.util.Log.d("AppLauncher", "CONFIGFILE: $configFile")
-      android.util.Log.d("AppLauncher", "IME: $ime")
-      android.util.Log.d("AppLauncher", "DATADIR: $dataDir")
-      android.util.Log.d("AppLauncher", "APK: $sourceDir")
-      android.util.Log.d("AppLauncher", "SDCARD: $sdcard")
-      android.util.Log.d("AppLauncher", "EXTERNAL: $external")
-
-      // Tạo intent GIỐNG HỆT MainMenuActivity.startRetroActivity()
-      val intent = Intent(Intent.ACTION_MAIN)
-      intent.component = ComponentName(packageName, activityName)
-
-      // FLAG_ACTIVITY_CLEAR_TOP — giống cách RetroArch tự launch
-      intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-
-      // === ĐẦY ĐỦ 8 EXTRAS ===
-      intent.putExtra("ROM", romPath)
-      intent.putExtra("LIBRETRO", corePath)
-      intent.putExtra("CONFIGFILE", configFile)
-      intent.putExtra("IME", ime)
-      intent.putExtra("DATADIR", dataDir)
-      intent.putExtra("APK", sourceDir)
-      intent.putExtra("SDCARD", sdcard)
-      intent.putExtra("EXTERNAL", external)
-
-      android.util.Log.d("AppLauncher", "Launching with all extras...")
-      context.startActivity(intent)
+      true
     }
 
-    // Mở ứng dụng kèm file (cho các emulator khác)
-    AsyncFunction("launchAppWithFile") { packageName: String, filePath: String ->
+    // === EXPORT SAVE — Copy .sav ra /Alga/saves/ ===
+    AsyncFunction("exportSave") { romBaseName: String ->
       val context = appContext.reactContext ?: throw Exception("Context is null")
-      
-      val file = File(filePath)
-      if (!file.exists()) {
-        throw Exception("File not found: $filePath")
+      val savesDir = File(context.filesDir, "saves")
+      val saveFile = File(savesDir, "${romBaseName}.sav")
+
+      if (!saveFile.exists() || saveFile.length() == 0L) {
+        throw Exception("Chưa có save cho game này")
       }
 
-      val oldPolicy = StrictMode.getVmPolicy()
-      StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().build())
+      val externalSaves = File(Environment.getExternalStorageDirectory(), "Alga/saves")
+      if (!externalSaves.exists()) externalSaves.mkdirs()
+      val externalFile = File(externalSaves, "${romBaseName}.sav")
+      saveFile.copyTo(externalFile, overwrite = true)
 
-      try {
-        val uri = Uri.fromFile(file)
-        val intent = Intent(Intent.ACTION_VIEW)
-        intent.setDataAndType(uri, "*/*")
-        intent.setPackage(packageName)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        
-        try {
-          context.startActivity(intent)
-        } catch (e: Exception) {
-          val fallbackIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-            ?: throw Exception("App not found: $packageName")
-          fallbackIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-          fallbackIntent.putExtra("GAME_PATH", filePath)
-          fallbackIntent.data = uri
-          context.startActivity(fallbackIntent)
+      android.util.Log.d("AppLauncher", "Exported save: ${externalFile.absolutePath} (${externalFile.length()} bytes)")
+      externalFile.absolutePath
+    }
+
+    // === IMPORT SAVE — Copy từ /Alga/saves/ vào internal ===
+    AsyncFunction("importSave") { romBaseName: String, sourceUri: String ->
+      val context = appContext.reactContext ?: throw Exception("Context is null")
+      val savesDir = File(context.filesDir, "saves")
+      if (!savesDir.exists()) savesDir.mkdirs()
+      val destFile = File(savesDir, "${romBaseName}.sav")
+
+      // sourceUri có thể là file path hoặc content URI
+      if (sourceUri.startsWith("content://") || sourceUri.startsWith("file://")) {
+        val uri = Uri.parse(sourceUri)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+          java.io.FileOutputStream(destFile).use { output ->
+            input.copyTo(output, bufferSize = 8192)
+          }
+        } ?: throw Exception("Không thể đọc file: $sourceUri")
+      } else {
+        // Plain file path
+        val srcFile = File(sourceUri)
+        if (!srcFile.exists()) throw Exception("File không tồn tại: $sourceUri")
+        srcFile.copyTo(destFile, overwrite = true)
+      }
+
+      android.util.Log.d("AppLauncher", "Imported save: ${destFile.name} (${destFile.length()} bytes)")
+      destFile.absolutePath
+    }
+
+    // === CHECK SAVE EXISTS ===
+    AsyncFunction("hasSave") { romBaseName: String ->
+      val context = appContext.reactContext ?: throw Exception("Context is null")
+      val saveFile = File(context.filesDir, "saves/${romBaseName}.sav")
+      saveFile.exists() && saveFile.length() > 0L
+    }
+
+    // === CHECK EXTERNAL SAVE EXISTS (for import) ===
+    AsyncFunction("hasExternalSave") { romBaseName: String ->
+      val externalFile = File(Environment.getExternalStorageDirectory(), "Alga/saves/${romBaseName}.sav")
+      externalFile.exists() && externalFile.length() > 0L
+    }
+
+    // === BACKGROUND DOWNLOAD — Android DownloadManager ===
+    // Tải nền thật sự, hiện notification trên thanh trạng thái
+    // destSubPath = relative path inside Downloads folder, e.g. "Alga/game_123.zip"
+    AsyncFunction("enqueueDownload") { url: String, destSubPath: String, title: String, description: String ->
+      val context = appContext.reactContext ?: throw Exception("Context is null")
+      val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+
+      val request = DownloadManager.Request(Uri.parse(url))
+        .setTitle(title)
+        .setDescription(description)
+        .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, destSubPath)
+        .setAllowedOverMetered(true)
+        .setAllowedOverRoaming(false)
+
+      val downloadId = dm.enqueue(request)
+      // Return both the ID and the actual resolved path
+      val resolvedPath = "${Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)}/$destSubPath"
+      android.util.Log.d("AppLauncher", "Enqueued download #$downloadId: $url -> $resolvedPath")
+      mapOf("downloadId" to downloadId.toString(), "filePath" to resolvedPath)
+    }
+
+    // Kiểm tra tiến trình download
+    AsyncFunction("getDownloadProgress") { downloadIdStr: String ->
+      val context = appContext.reactContext ?: throw Exception("Context is null")
+      val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+      val downloadId = downloadIdStr.toLong()
+
+      val query = DownloadManager.Query().setFilterById(downloadId)
+      val cursor: Cursor? = dm.query(query)
+
+      if (cursor != null && cursor.moveToFirst()) {
+        val bytesDownloaded = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+        val bytesTotal = cursor.getLong(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+        val status = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+        val reason = cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))
+        cursor.close()
+
+        val statusStr = when (status) {
+          DownloadManager.STATUS_PENDING -> "pending"
+          DownloadManager.STATUS_RUNNING -> "running"
+          DownloadManager.STATUS_PAUSED -> "paused"
+          DownloadManager.STATUS_SUCCESSFUL -> "success"
+          DownloadManager.STATUS_FAILED -> "failed"
+          else -> "unknown"
         }
-      } finally {
-        StrictMode.setVmPolicy(oldPolicy)
+
+        mapOf(
+          "bytesDownloaded" to bytesDownloaded,
+          "bytesTotal" to bytesTotal,
+          "status" to statusStr,
+          "reason" to reason,
+          "progress" to if (bytesTotal > 0) (bytesDownloaded.toDouble() / bytesTotal) else 0.0
+        )
+      } else {
+        cursor?.close()
+        mapOf(
+          "bytesDownloaded" to 0L,
+          "bytesTotal" to 0L,
+          "status" to "not_found",
+          "reason" to 0,
+          "progress" to 0.0
+        )
       }
+    }
+
+    // Huỷ download
+    AsyncFunction("cancelNativeDownload") { downloadIdStr: String ->
+      val context = appContext.reactContext ?: throw Exception("Context is null")
+      val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+      val downloadId = downloadIdStr.toLong()
+      dm.remove(downloadId)
+      true
     }
   }
 }

@@ -30,15 +30,54 @@ export async function copyFile(srcPath: string, destPath: string): Promise<strin
   return AppLauncherModule.copyFile(srcPath, destPath);
 }
 
-export async function launchRetroArch(
-  packageName: string,
-  activityName: string,
-  romPath: string,
-  corePath: string
-): Promise<void> {
-  return AppLauncherModule.launchRetroArch(packageName, activityName, romPath, corePath);
+export async function deleteFileOrDir(path: string): Promise<boolean> {
+  return AppLauncherModule.deleteFileOrDir(path);
 }
 
-export async function launchAppWithFile(packageName: string, filePath: string): Promise<void> {
-  return AppLauncherModule.launchAppWithFile(packageName, filePath);
+// === Background Download (Android DownloadManager) ===
+export interface EnqueueResult {
+  downloadId: string;
+  filePath: string;
+}
+
+export async function enqueueDownload(
+  url: string,
+  destSubPath: string,
+  title: string,
+  description: string
+): Promise<EnqueueResult> {
+  return AppLauncherModule.enqueueDownload(url, destSubPath, title, description);
+}
+
+export interface DownloadProgress {
+  bytesDownloaded: number;
+  bytesTotal: number;
+  status: 'pending' | 'running' | 'paused' | 'success' | 'failed' | 'not_found' | 'unknown';
+  reason: number;
+  progress: number;
+}
+
+export async function getDownloadProgress(downloadId: string): Promise<DownloadProgress> {
+  return AppLauncherModule.getDownloadProgress(downloadId);
+}
+
+export async function cancelNativeDownload(downloadId: string): Promise<boolean> {
+  return AppLauncherModule.cancelNativeDownload(downloadId);
+}
+
+// === Save Management ===
+export async function exportSave(romBaseName: string): Promise<string> {
+  return AppLauncherModule.exportSave(romBaseName);
+}
+
+export async function importSave(romBaseName: string, sourceUri: string): Promise<string> {
+  return AppLauncherModule.importSave(romBaseName, sourceUri);
+}
+
+export async function hasSave(romBaseName: string): Promise<boolean> {
+  return AppLauncherModule.hasSave(romBaseName);
+}
+
+export async function hasExternalSave(romBaseName: string): Promise<boolean> {
+  return AppLauncherModule.hasExternalSave(romBaseName);
 }

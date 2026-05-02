@@ -23,7 +23,8 @@ class TouchControlsOverlay @JvmOverloads constructor(
 
     private val prefs: SharedPreferences = context.getSharedPreferences("alga_controls", Context.MODE_PRIVATE)
     private var buttonScale: Float = prefs.getFloat("button_scale", 1.0f)
-    private var currentSpeed: Int = 1
+    private var currentSpeed: Int = prefs.getInt("speed", 1)
+    private var savedLayoutIndex: Int = prefs.getInt("layout", 0)
     private var menuOpen: Boolean = false
 
     // === Paint ===
@@ -96,6 +97,7 @@ class TouchControlsOverlay @JvmOverloads constructor(
         MenuItem("l2", "Chỉ màn trên"), MenuItem("l3", "Chỉ màn dưới"), MenuItem("l4", "Kết hợp"),
     )
 
+
     private var menuPanelRect = RectF()
     private val pointerButtons = mutableMapOf<Int, MutableSet<String>>()
 
@@ -160,8 +162,8 @@ class TouchControlsOverlay @JvmOverloads constructor(
     }
 
     private fun layoutMenuPanel(w: Float, h: Float) {
-        val panelW = minOf(w * 0.55f, 640f)
-        val itemH = minOf(h * 0.085f, 58f)
+        val panelW = minOf(w * 0.65f, 720f)
+        val itemH = minOf(h * 0.09f, 62f)
         val gap = 5f
         val sectionLabelH = itemH * 0.55f
         val sectionGap = 10f
@@ -169,7 +171,7 @@ class TouchControlsOverlay @JvmOverloads constructor(
         val padY = 14f
         val padX = panelW * 0.05f
 
-        // Đếm nội dung: speed + scale + save/load state + layout(NDS)
+        // Đếm nội dung: speed + scale + save/load state + layout(NDS) + cheats
         var contentH = titleH + padY
         contentH += sectionLabelH + sectionGap + itemH + gap  // Speed
         contentH += sectionLabelH + sectionGap + itemH + gap  // Scale
@@ -178,6 +180,8 @@ class TouchControlsOverlay @JvmOverloads constructor(
         if (isNDS) {
             contentH += sectionLabelH + sectionGap + layoutItems.size * (itemH + gap)
         }
+        // Cheats button (single item)
+        contentH += sectionLabelH + sectionGap + itemH + gap
         contentH += padY + sectionLabelH  // Hint
 
         val panelX = (w - panelW) * 0.5f
@@ -228,11 +232,21 @@ class TouchControlsOverlay @JvmOverloads constructor(
                 curY += itemH + gap
             }
         }
+
+        // Cheats button
+        curY += sectionLabelH + sectionGap
+        val cheatsCount = gameActivity?.cheats?.size ?: 0
+        cheatsMenuItem.label = if (cheatsCount > 0) "Cheats ($cheatsCount)" else "Cheats"
+        cheatsMenuItem.bounds.set(panelX + padX, curY, panelX + panelW - padX, curY + itemH)
+        curY += itemH + gap
     }
+
+    private val cheatsMenuItem = MenuItem("cheats_open", "Cheats")
 
     private fun getActiveMenuItems(): List<MenuItem> {
         val base = speedItems + scaleItems + saveStateItems + loadStateItems
-        return if (isNDS) base + layoutItems else base
+        val withLayout = if (isNDS) base + layoutItems else base
+        return withLayout + cheatsMenuItem
     }
 
     private fun setCircle(btn: VButton, cx: Float, cy: Float, r: Float) {
@@ -330,6 +344,11 @@ class TouchControlsOverlay @JvmOverloads constructor(
                 drawMenuItem(canvas, item, gameActivity?.currentLayoutIndex == i)
         }
 
+        // Cheats button
+        canvas.drawText("Cheats", padX, cheatsMenuItem.bounds.top - labelSize * 0.3f, menuLabelPaint)
+        val cheatsCount = gameActivity?.cheats?.size ?: 0
+        drawMenuItem(canvas, cheatsMenuItem, cheatsCount > 0)
+
         // Hint
         menuHintPaint.textSize = labelSize
         canvas.drawText("Chạm ngoài để đóng", menuPanelRect.centerX(), menuPanelRect.bottom - labelSize * 0.3f, menuHintPaint)
@@ -372,6 +391,8 @@ class TouchControlsOverlay @JvmOverloads constructor(
     private fun handleMenuTouch(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
             val x = event.x; val y = event.y
+
+            // Normal tap for all items
             for (item in getActiveMenuItems()) {
                 if (item.bounds.contains(x, y)) { handleMenuAction(item.id); return true }
             }
@@ -380,7 +401,10 @@ class TouchControlsOverlay @JvmOverloads constructor(
         return true
     }
 
-    private fun openMenu() { menuOpen = true; releaseAll(); invalidate() }
+    private fun openMenu() {
+        layoutMenuPanel(width.toFloat(), height.toFloat())
+        menuOpen = true; releaseAll(); invalidate()
+    }
     private fun closeMenu() { menuOpen = false; invalidate() }
 
     private fun handlePress(pid: Int, x: Float, y: Float) {
@@ -430,9 +454,9 @@ class TouchControlsOverlay @JvmOverloads constructor(
 
     private fun handleMenuAction(id: String) {
         when (id) {
-            "s1" -> { currentSpeed = 1; retroView?.frameSpeed = 1 }
-            "s2" -> { currentSpeed = 2; retroView?.frameSpeed = 2 }
-            "s4" -> { currentSpeed = 4; retroView?.frameSpeed = 4 }
+            "s1" -> setSpeed(1)
+            "s2" -> setSpeed(2)
+            "s4" -> setSpeed(4)
             "su" -> adjustScale(0.15f)
             "sd" -> adjustScale(-0.15f)
             "ss0" -> { gameActivity?.saveState(0); closeMenu() }
@@ -443,6 +467,7 @@ class TouchControlsOverlay @JvmOverloads constructor(
             "ls2" -> { gameActivity?.loadState(2); closeMenu() }
             "l0" -> setLayout(0); "l1" -> setLayout(1)
             "l2" -> setLayout(2); "l3" -> setLayout(3); "l4" -> setLayout(4)
+            "cheats_open" -> { closeMenu(); showCheatsDialog() }
         }
         invalidate()
     }
@@ -453,7 +478,200 @@ class TouchControlsOverlay @JvmOverloads constructor(
         layoutButtons(width.toFloat(), height.toFloat())
     }
 
+    private fun setSpeed(s: Int) {
+        currentSpeed = s
+        retroView?.frameSpeed = s
+        prefs.edit().putInt("speed", s).apply()
+    }
+
     private fun setLayout(i: Int) {
         gameActivity?.let { it.currentLayoutIndex = i; it.applyScreenLayout(i) }
+        prefs.edit().putInt("layout", i).apply()
+    }
+
+    private fun showCheatsDialog() {
+        val activity = gameActivity ?: return
+
+        fun buildCheatListView(): android.widget.LinearLayout {
+            val cheats = activity.cheats
+            val listLayout = android.widget.LinearLayout(activity).apply {
+                orientation = android.widget.LinearLayout.VERTICAL
+                setPadding(32, 16, 32, 16)
+            }
+
+            if (cheats.isEmpty()) {
+                val emptyText = android.widget.TextView(activity).apply {
+                    text = "Chưa có cheat nào.\nẤn \"Thêm Cheat\" để bắt đầu."
+                    setTextColor(Color.argb(150, 200, 200, 210))
+                    textSize = 14f
+                    setPadding(0, 32, 0, 32)
+                    gravity = android.view.Gravity.CENTER
+                }
+                listLayout.addView(emptyText)
+            }
+
+            for ((i, cheat) in cheats.withIndex()) {
+                val row = android.widget.LinearLayout(activity).apply {
+                    orientation = android.widget.LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(8, 12, 8, 12)
+                    setBackgroundColor(Color.argb(30, 255, 255, 255))
+                    val params = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    params.bottomMargin = 8
+                    layoutParams = params
+                }
+
+                // Toggle status indicator
+                val statusText = android.widget.TextView(activity).apply {
+                    text = if (cheat.enabled) "✓" else "✗"
+                    setTextColor(if (cheat.enabled) Color.argb(255, 80, 200, 120) else Color.argb(255, 200, 80, 80))
+                    textSize = 18f
+                    setPadding(8, 0, 16, 0)
+                }
+                row.addView(statusText)
+
+                // Name + code preview
+                val infoLayout = android.widget.LinearLayout(activity).apply {
+                    orientation = android.widget.LinearLayout.VERTICAL
+                    layoutParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val nameText = android.widget.TextView(activity).apply {
+                    text = cheat.name
+                    setTextColor(Color.WHITE)
+                    textSize = 15f
+                    isSingleLine = true
+                }
+                infoLayout.addView(nameText)
+                val codePreview = android.widget.TextView(activity).apply {
+                    text = cheat.code.replace("+", " ").take(30) + if (cheat.code.length > 30) "..." else ""
+                    setTextColor(Color.argb(120, 180, 180, 200))
+                    textSize = 11f
+                    isSingleLine = true
+                }
+                infoLayout.addView(codePreview)
+                row.addView(infoLayout)
+
+                // "⋮" action button
+                val actionBtn = android.widget.TextView(activity).apply {
+                    text = "⋮"
+                    setTextColor(Color.argb(200, 200, 200, 220))
+                    textSize = 22f
+                    setPadding(24, 0, 8, 0)
+                    gravity = android.view.Gravity.CENTER
+                }
+                row.addView(actionBtn)
+
+                // Tap row = toggle
+                val cheatIndex = i
+                row.setOnClickListener {
+                    activity.toggleCheat(cheatIndex)
+                    statusText.text = if (cheats[cheatIndex].enabled) "✓" else "✗"
+                    statusText.setTextColor(
+                        if (cheats[cheatIndex].enabled) Color.argb(255, 80, 200, 120)
+                        else Color.argb(255, 200, 80, 80)
+                    )
+                }
+
+                // Tap ⋮ = edit/delete menu
+                actionBtn.setOnClickListener {
+                    val items = arrayOf("Sửa", "Xóa")
+                    androidx.appcompat.app.AlertDialog.Builder(activity)
+                        .setTitle(cheat.name)
+                        .setItems(items) { _, which ->
+                            when (which) {
+                                0 -> showCheatFormDialog(cheatIndex)
+                                1 -> {
+                                    activity.removeCheat(cheatIndex)
+                                    // Reopen to refresh
+                                    showCheatsDialog()
+                                }
+                            }
+                        }
+                        .setNegativeButton("Huỷ", null)
+                        .show()
+                }
+
+                listLayout.addView(row)
+            }
+
+            return listLayout
+        }
+
+        val scrollView = android.widget.ScrollView(activity).apply {
+            setPadding(0, 0, 0, 0)
+            addView(buildCheatListView())
+        }
+
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(activity)
+            .setTitle("Cheats (${activity.cheats.size})")
+            .setView(scrollView)
+            .setPositiveButton("Thêm Cheat") { _, _ ->
+                showCheatFormDialog(null)
+            }
+            .setNegativeButton("Đóng", null)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(android.R.color.background_dark)
+        dialog.show()
+    }
+
+    /** @param editIndex null = thêm mới, non-null = sửa cheat tại index */
+    private fun showCheatFormDialog(editIndex: Int?) {
+        val activity = gameActivity ?: return
+        val existing = if (editIndex != null) activity.cheats.getOrNull(editIndex) else null
+        val isEdit = existing != null
+
+        val layout = android.widget.LinearLayout(activity).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 8)
+        }
+
+        val nameInput = android.widget.EditText(activity).apply {
+            hint = "Tên cheat (VD: Infinite Money)"
+            if (isEdit) setText(existing!!.name)
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+        }
+        layout.addView(nameInput)
+
+        val codeInput = android.widget.EditText(activity).apply {
+            hint = "Code (VD: DEADBEEF 0000FFFF)"
+            if (isEdit) setText(existing!!.code.replace("+", "\n"))
+            minLines = 3
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+        layout.addView(codeInput)
+
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(activity)
+            .setTitle(if (isEdit) "Sửa Cheat" else "Thêm Cheat")
+            .setView(layout)
+            .setPositiveButton(if (isEdit) "Lưu" else "Thêm") { _, _ ->
+                val name = nameInput.text.toString().trim()
+                val code = codeInput.text.toString().trim()
+                if (name.isNotEmpty() && code.isNotEmpty()) {
+                    val formattedCode = code.lines().map { it.trim() }.filter { it.isNotEmpty() }.joinToString("+")
+                    if (isEdit && existing != null) {
+                        existing.name = name
+                        existing.code = formattedCode
+                        activity.saveCheats()
+                        activity.applyCheats()
+                    } else {
+                        activity.addCheat(name, formattedCode)
+                    }
+                }
+                // Reopen cheats list
+                showCheatsDialog()
+            }
+            .setNegativeButton("Huỷ", null)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(android.R.color.background_dark)
+        dialog.show()
     }
 }

@@ -1,19 +1,17 @@
 import React, { useState, useRef, useMemo } from 'react';
-import { View, Text, FlatList, Image, StatusBar, ImageBackground, useWindowDimensions, ScrollView as RNScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, Image, StatusBar, ImageBackground, useWindowDimensions, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { EmulatorCard } from '@/components/EmulatorCard';
 import { EMULATORS } from '@/constants/emulators';
-import { GAME_LIBRARY } from '@/constants/games';
-import { Search, Info, User } from 'lucide-react-native';
-import { useRetroArch, useCore } from '@/hooks/useEmulator';
+import { useCore } from '@/hooks/useEmulator';
 import Animated, { 
   FadeIn, 
   FadeInDown, 
 } from 'react-native-reanimated';
 
 // Card cho mỗi hệ máy trong carousel
-const EmulatorItem = ({ emulator, isSelected, onFocus, onAction, retroArchInstalled }: any) => {
+const EmulatorItem = ({ emulator, isSelected, onFocus, onAction }: any) => {
   const { isCoreReady, isDownloading, progress, downloadCore } = useCore(emulator.coreName, emulator.coreUrl);
 
   const handlePress = () => {
@@ -21,12 +19,8 @@ const EmulatorItem = ({ emulator, isSelected, onFocus, onAction, retroArchInstal
       onFocus();
       return;
     }
-    if (!retroArchInstalled) return; // Cần cài RetroArch trước
-    if (isCoreReady) {
-      onAction(emulator.id);
-    } else {
-      downloadCore();
-    }
+    // Navigate to library — will auto-download core if needed
+    onAction(emulator.id);
   };
 
   return (
@@ -49,16 +43,10 @@ export default function HomeScreen() {
 
   const selectedEmulator = EMULATORS[selectedIndex];
   
-  // RetroArch status (chung cho tất cả)
-  const { isInstalled: retroArchInstalled, isDownloading: retroDownloading, progress: retroProgress, downloadAndInstall: installRetroArch } = useRetroArch();
-  
-  // Core status cho emulator đang chọn
   const { isCoreReady, isDownloading: coreDownloading, progress: coreProgress, downloadCore } = useCore(selectedEmulator.coreName, selectedEmulator.coreUrl);
-  
-  const hasGames = (GAME_LIBRARY[selectedEmulator.id]?.length ?? 0) > 0;
 
-  const goToGames = (emulatorId: string) => {
-    router.push({ pathname: '/games', params: { emulatorId } });
+  const goToLibrary = (emulatorId: string) => {
+    router.push({ pathname: '/library', params: { emulatorId } });
   };
 
   const isLandscape = width > height;
@@ -79,24 +67,19 @@ export default function HomeScreen() {
 
   // Xác định trạng thái nút chính
   const getButtonState = () => {
-    if (!retroArchInstalled) {
-      return {
-        label: retroDownloading ? `Tải RetroArch ${Math.round(retroProgress * 100)}%` : 'Cài RetroArch',
-        onPress: installRetroArch,
-        disabled: retroDownloading,
-      };
-    }
     if (!isCoreReady) {
       return {
         label: coreDownloading ? `Tải Core ${Math.round(coreProgress * 100)}%` : 'Tải Core',
         onPress: downloadCore,
         disabled: coreDownloading,
+        style: 'bg-retro-blue',
       };
     }
     return {
-      label: hasGames ? 'Xem Game' : 'Sẵn sàng ✓',
-      onPress: () => goToGames(selectedEmulator.id),
-      disabled: !hasGames,
+      label: 'Mở thư viện',
+      onPress: () => goToLibrary(selectedEmulator.id),
+      disabled: false,
+      style: 'bg-white',
     };
   };
 
@@ -123,27 +106,7 @@ export default function HomeScreen() {
         className="flex-row justify-between items-center px-6 py-3"
       >
         <View className="flex-row items-center">
-          <Text className="text-white text-2xl font-black tracking-tighter mr-2">ALGA</Text>
-          {retroArchInstalled && (
-            <View className="bg-green-500/20 px-2 py-0.5 rounded-full border border-green-500/40">
-              <Text className="text-green-400 text-[10px] font-bold">RetroArch ✓</Text>
-            </View>
-          )}
-        </View>
-
-        <View className="flex-row items-center">
-          <RNScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {CATEGORIES.map((cat, i) => (
-              <Text key={i} className="text-white/60 text-sm font-medium mx-3">
-                {cat}
-              </Text>
-            ))}
-          </RNScrollView>
-        </View>
-
-        <View className="flex-row items-center gap-x-5 ml-2">
-          <Search size={18} color="white" opacity={0.6} />
-          <Info size={18} color="white" opacity={0.6} />
+          <Text className="text-white text-2xl font-black tracking-tighter">ALGA</Text>
         </View>
       </View>
 
@@ -171,8 +134,7 @@ export default function HomeScreen() {
                 flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
                 setSelectedIndex(index);
               }}
-              onAction={goToGames}
-              retroArchInstalled={retroArchInstalled}
+              onAction={goToLibrary}
             />
           )}
         />
@@ -202,13 +164,9 @@ export default function HomeScreen() {
              <TouchableOpacity 
                 onPress={buttonState.onPress}
                 disabled={buttonState.disabled}
-                className={`px-10 py-4 rounded-full shadow-xl min-w-[160px] items-center ${
-                  retroArchInstalled && isCoreReady ? 'bg-white shadow-white/30' : 'bg-retro-blue shadow-retro-blue/30'
-                }`}
+                className={`px-10 py-4 rounded-full shadow-xl min-w-[160px] items-center ${buttonState.style}`}
              >
-                <Text className={`font-extrabold text-lg ${
-                  retroArchInstalled && isCoreReady ? 'text-black' : 'text-black'
-                }`}>
+                <Text className="text-black font-extrabold text-lg">
                   {buttonState.label}
                 </Text>
              </TouchableOpacity>
@@ -218,5 +176,3 @@ export default function HomeScreen() {
     </View>
   );
 }
-
-const CATEGORIES = ['Store', 'Game của tôi', 'Media', 'Thư viện', 'Cài đặt'];

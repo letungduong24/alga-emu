@@ -1,8 +1,6 @@
 package expo.modules.applauncher
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.view.KeyEvent
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -23,7 +21,6 @@ class GameActivity : AppCompatActivity() {
 
     var retroView: GLRetroView? = null
 
-    // NDS Screen layouts
     private val screenLayouts = arrayOf(
         "Left/Right",
         "Top/Bottom",
@@ -35,13 +32,88 @@ class GameActivity : AppCompatActivity() {
     var currentStateSlot = 0
     private var romBaseName: String = ""
 
-    // Auto-save timer
-    private val autoSaveHandler = Handler(Looper.getMainLooper())
-    private val autoSaveInterval = 30_000L  // 30 giây
-    private val autoSaveRunnable = object : Runnable {
-        override fun run() {
-            saveSRAM("auto-save")
-            autoSaveHandler.postDelayed(this, autoSaveInterval)
+    // === Cheat System ===
+    data class CheatEntry(var name: String, var code: String, var enabled: Boolean = true)
+    val cheats = mutableListOf<CheatEntry>()
+
+    private fun getCheatsFile(): java.io.File {
+        val dir = java.io.File(filesDir, "cheats")
+        if (!dir.exists()) dir.mkdirs()
+        return java.io.File(dir, "${romBaseName}.json")
+    }
+
+    fun loadCheats() {
+        cheats.clear()
+        val file = getCheatsFile()
+        if (!file.exists()) return
+        try {
+            val json = org.json.JSONArray(file.readText())
+            for (i in 0 until json.length()) {
+                val obj = json.getJSONObject(i)
+                cheats.add(CheatEntry(
+                    name = obj.getString("name"),
+                    code = obj.getString("code"),
+                    enabled = obj.optBoolean("enabled", true)
+                ))
+            }
+            android.util.Log.d("GameActivity", "Loaded ${cheats.size} cheats for $romBaseName")
+        } catch (e: Exception) {
+            android.util.Log.e("GameActivity", "Failed to load cheats", e)
+        }
+    }
+
+    fun saveCheats() {
+        try {
+            val json = org.json.JSONArray()
+            for (c in cheats) {
+                val obj = org.json.JSONObject()
+                obj.put("name", c.name)
+                obj.put("code", c.code)
+                obj.put("enabled", c.enabled)
+                json.put(obj)
+            }
+            getCheatsFile().writeText(json.toString(2))
+        } catch (e: Exception) {
+            android.util.Log.e("GameActivity", "Failed to save cheats", e)
+        }
+    }
+
+    fun applyCheats() {
+        val rv = retroView ?: return
+        for ((i, cheat) in cheats.withIndex()) {
+            try {
+                rv.setCheat(i, cheat.enabled, cheat.code)
+                android.util.Log.d("GameActivity", "Cheat[$i] ${if (cheat.enabled) "ON" else "OFF"}: ${cheat.name}")
+            } catch (e: Exception) {
+                android.util.Log.e("GameActivity", "Failed to apply cheat[$i]: ${cheat.name}", e)
+            }
+        }
+    }
+
+    fun addCheat(name: String, code: String) {
+        cheats.add(CheatEntry(name, code, true))
+        saveCheats()
+        applyCheats()
+        runOnUiThread {
+            android.widget.Toast.makeText(this, "Đã thêm: $name", android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun toggleCheat(index: Int) {
+        if (index !in cheats.indices) return
+        cheats[index].enabled = !cheats[index].enabled
+        saveCheats()
+        applyCheats()
+    }
+
+    fun removeCheat(index: Int) {
+        if (index !in cheats.indices) return
+        val name = cheats[index].name
+        cheats.removeAt(index)
+        saveCheats()
+        applyCheats()
+        runOnUiThread {
+            android.widget.Toast.makeText(this, "Đã xóa: $name", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -59,14 +131,13 @@ class GameActivity : AppCompatActivity() {
             return
         }
 
-        // Lấy tên ROM để đặt tên file state
         romBaseName = java.io.File(romPath).nameWithoutExtension
 
         android.util.Log.d("GameActivity", "=== Starting Game ===")
         android.util.Log.d("GameActivity", "Core: $corePath")
         android.util.Log.d("GameActivity", "ROM: $romPath")
 
-        // Tạo directories
+        // Directories — chỉ tạo, KHÔNG can thiệp vào file saves
         val savesDir = java.io.File(filesDir, "saves")
         if (!savesDir.exists()) savesDir.mkdirs()
         val systemDir = java.io.File(filesDir, "system")
@@ -74,13 +145,16 @@ class GameActivity : AppCompatActivity() {
         val statesDir = java.io.File(filesDir, "states")
         if (!statesDir.exists()) statesDir.mkdirs()
 
-        // Import save từ external nếu có (người dùng bỏ file .sav vào /Alga/saves/)
-        importSavesFromExternal(savesDir)
+        android.util.Log.d("GameActivity", "Saves dir: ${savesDir.absolutePath}")
+
+        // Log files at startup
+        savesDir.listFiles()?.forEach { f ->
+            android.util.Log.d("GameActivity", "  ${f.name} = ${f.length()} bytes")
+        }
 
         val isNDS = corePath.contains("melonds", ignoreCase = true) ||
                     corePath.contains("desmume", ignoreCase = true)
 
-        // Cấu hình LibretroDroid
         val viewData = GLRetroViewData(this).apply {
             coreFilePath = corePath
             gameFilePath = romPath
@@ -101,7 +175,30 @@ class GameActivity : AppCompatActivity() {
 
         retroView = GLRetroView(this, viewData)
 
-        // Error handling
+        // Load cheats from file
+        loadCheats()
+
+        retroView!!.getGLRetroEvents()
+            .onEach { event ->
+                if (event is GLRetroView.GLRetroEvents.SurfaceCreated) {
+                    // Core is ready — apply saved settings + cheats
+                    applyCheats()
+
+                    // Restore saved speed & layout
+                    val prefs = getSharedPreferences("alga_controls", MODE_PRIVATE)
+                    val savedSpeed = prefs.getInt("speed", 1)
+                    if (savedSpeed > 1) retroView?.frameSpeed = savedSpeed
+
+                    val savedLayout = prefs.getInt("layout", 0)
+                    if (savedLayout > 0 && isNDS) {
+                        currentLayoutIndex = savedLayout
+                        applyScreenLayout(savedLayout)
+                    }
+                }
+            }
+            .catch { e -> android.util.Log.e("GameActivity", "Events flow exception", e) }
+            .launchIn(lifecycleScope)
+
         retroView!!.getGLRetroErrors()
             .onEach { errorCode ->
                 android.util.Log.e("GameActivity", "LibretroDroid error: $errorCode")
@@ -113,7 +210,6 @@ class GameActivity : AppCompatActivity() {
             .catch { e -> android.util.Log.e("GameActivity", "Error flow exception", e) }
             .launchIn(lifecycleScope)
 
-        // Layout
         val container = FrameLayout(this)
         container.addView(retroView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -131,18 +227,13 @@ class GameActivity : AppCompatActivity() {
 
         setContentView(container)
 
-        // Fullscreen
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, container).let { controller ->
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        // Kết nối lifecycle — GLRetroView quản lý resume/pause/destroy qua đây
         lifecycle.addObserver(retroView!!)
-
-        // Bắt đầu auto-save SRAM mỗi 30 giây
-        autoSaveHandler.postDelayed(autoSaveRunnable, autoSaveInterval)
     }
 
     // === NDS screen layout ===
@@ -160,7 +251,7 @@ class GameActivity : AppCompatActivity() {
 
     fun getCurrentLayoutName(): String = screenLayouts[currentLayoutIndex]
 
-    // === Save State (lưu/tải trạng thái emulator) ===
+    // === Save State ===
     fun saveState(slot: Int) {
         try {
             val data = retroView?.serializeState()
@@ -174,13 +265,6 @@ class GameActivity : AppCompatActivity() {
                 runOnUiThread {
                     android.widget.Toast.makeText(this, "Đã lưu Slot ${slot + 1}", android.widget.Toast.LENGTH_SHORT).show()
                 }
-
-                // Backup ra external
-                try {
-                    val extStates = java.io.File(android.os.Environment.getExternalStorageDirectory(), "Alga/states")
-                    if (!extStates.exists()) extStates.mkdirs()
-                    stateFile.copyTo(java.io.File(extStates, stateFile.name), overwrite = true)
-                } catch (_: Exception) {}
             } else {
                 runOnUiThread {
                     android.widget.Toast.makeText(this, "Không thể lưu state", android.widget.Toast.LENGTH_SHORT).show()
@@ -188,9 +272,6 @@ class GameActivity : AppCompatActivity() {
             }
         } catch (e: Exception) {
             android.util.Log.e("GameActivity", "Save state failed", e)
-            runOnUiThread {
-                android.widget.Toast.makeText(this, "Lỗi lưu state: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-            }
         }
     }
 
@@ -198,132 +279,118 @@ class GameActivity : AppCompatActivity() {
         try {
             val statesDir = java.io.File(filesDir, "states")
             val stateFile = java.io.File(statesDir, "${romBaseName}.slot${slot}.state")
-
-            // Thử import từ external nếu internal không có
-            if (!stateFile.exists()) {
-                val extFile = java.io.File(android.os.Environment.getExternalStorageDirectory(), "Alga/states/${stateFile.name}")
-                if (extFile.exists()) extFile.copyTo(stateFile, overwrite = true)
-            }
-
             if (!stateFile.exists()) {
                 runOnUiThread {
                     android.widget.Toast.makeText(this, "Slot ${slot + 1} trống", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 return
             }
-
             val data = stateFile.readBytes()
             val success = retroView?.unserializeState(data) ?: false
             currentStateSlot = slot
-            android.util.Log.d("GameActivity", "State loaded: ${stateFile.name} (${data.size} bytes) success=$success")
+            android.util.Log.d("GameActivity", "State loaded: ${stateFile.name} success=$success")
             runOnUiThread {
                 android.widget.Toast.makeText(this, if (success) "Đã tải Slot ${slot + 1}" else "Lỗi tải state", android.widget.Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             android.util.Log.e("GameActivity", "Load state failed", e)
-            runOnUiThread {
-                android.widget.Toast.makeText(this, "Lỗi tải state: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-            }
         }
     }
 
     fun hasState(slot: Int): Boolean {
         val statesDir = java.io.File(filesDir, "states")
-        val stateFile = java.io.File(statesDir, "${romBaseName}.slot${slot}.state")
-        if (stateFile.exists()) return true
-        val extFile = java.io.File(android.os.Environment.getExternalStorageDirectory(), "Alga/states/${stateFile.name}")
-        return extFile.exists()
+        return java.io.File(statesDir, "${romBaseName}.slot${slot}.state").exists()
     }
 
-    // === SRAM Save Helper ===
-    private fun saveSRAM(reason: String) {
-        try {
-            retroView?.serializeSRAM()
-            android.util.Log.d("GameActivity", "SRAM saved ($reason)")
+    // === Lifecycle ===
 
-            // Backup save ra external storage để người dùng truy cập được
-            backupSavesToExternal()
-        } catch (e: Exception) {
-            android.util.Log.e("GameActivity", "Failed to save SRAM ($reason)", e)
-        }
-    }
-
-    private fun backupSavesToExternal() {
-        try {
-            val internalSaves = java.io.File(filesDir, "saves")
-            val externalSaves = java.io.File(
-                android.os.Environment.getExternalStorageDirectory(), "Alga/saves"
-            )
-            if (!externalSaves.exists()) externalSaves.mkdirs()
-
-            internalSaves.listFiles()?.forEach { src ->
-                val dst = java.io.File(externalSaves, src.name)
-                // Chỉ copy nếu file thay đổi (so sánh size + modified time)
-                if (!dst.exists() || src.length() != dst.length() || src.lastModified() > dst.lastModified()) {
-                    src.copyTo(dst, overwrite = true)
-                    android.util.Log.d("GameActivity", "Backup save: ${src.name} → ${dst.absolutePath}")
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("GameActivity", "Backup save to external failed (non-critical)", e)
-        }
-    }
-
-    private fun importSavesFromExternal(internalSavesDir: java.io.File) {
-        try {
-            val externalSaves = java.io.File(
-                android.os.Environment.getExternalStorageDirectory(), "Alga/saves"
-            )
-            if (!externalSaves.exists()) return
-
-            externalSaves.listFiles()?.forEach { src ->
-                val dst = java.io.File(internalSavesDir, src.name)
-                // Import nếu external mới hơn internal (người dùng thay file save)
-                if (!dst.exists() || src.lastModified() > dst.lastModified()) {
-                    src.copyTo(dst, overwrite = true)
-                    android.util.Log.d("GameActivity", "Imported save: ${src.name} → internal")
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("GameActivity", "Import save failed (non-critical)", e)
-        }
-    }
-
-    // === Lifecycle: Lưu SRAM TRƯỚC khi core pause ===
-    override fun onPause() {
-        // QUAN TRỌNG: Gọi saveSRAM TRƯỚC super.onPause()
-        // vì super.onPause() trigger lifecycle ON_PAUSE → LibretroDroid.pause()
-        // Sau khi core pause, SRAM có thể không đọc được
-        saveSRAM("onPause")
-        autoSaveHandler.removeCallbacks(autoSaveRunnable)
-        super.onPause()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Restart auto-save timer
-        autoSaveHandler.postDelayed(autoSaveRunnable, autoSaveInterval)
-    }
+    private var finishTriggered = false
+    private var exitDialogShowing = false
 
     override fun onDestroy() {
-        autoSaveHandler.removeCallbacks(autoSaveRunnable)
-
-        // KHÔNG gọi lifecycle.removeObserver() ở đây!
-        // Để super.onDestroy() dispatch ON_DESTROY → GLRetroView cleanup native resources
-        // Nếu remove observer trước → LibretroDroid.destroy() không được gọi → memory leak → crash lần sau
-
-        super.onDestroy()  // → dispatch ON_DESTROY → GLRetroView.destroy() → LibretroDroid.destroy()
+        android.util.Log.d("GameActivity", "=== onDestroy ===")
+        super.onDestroy()
         retroView = null
     }
 
+    /**
+     * Flow thoát game:
+     *   Back → Alert "Thoát game?" → User ấn "Thoát"
+     *   → Toast "Đang thoát..." → Poll chờ core flush save (tối đa 2s)
+     *   → finish()
+     *
+     * Alert dialog vừa confirm, vừa cho core thời gian flush save bất đồng bộ.
+     * Khi user ấn "Thoát", save đã có ~1-2s flush → poll 2s nữa = tổng ~3-4s.
+     */
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            // Lưu SRAM trước khi thoát
-            saveSRAM("back-button")
-            finish()
+            if (finishTriggered || exitDialogShowing) return true
+
+            exitDialogShowing = true
+            showExitConfirmDialog()
             return true
         }
         return retroView?.onKeyDown(keyCode, event) ?: super.onKeyDown(keyCode, event)
+    }
+
+    private fun showExitConfirmDialog() {
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Thoát game")
+            .setMessage("Bạn có muốn thoát game không?")
+            .setPositiveButton("Thoát") { _, _ ->
+                finishTriggered = true
+                exitDialogShowing = false
+                performSafeExit()
+            }
+            .setNegativeButton("Tiếp tục chơi") { dialog, _ ->
+                exitDialogShowing = false
+                dialog.dismiss()
+            }
+            .setCancelable(false)
+            .create()
+
+        // Style dialog cho đẹp hơn trên nền game tối
+        dialog.window?.setBackgroundDrawableResource(android.R.color.background_dark)
+        dialog.show()
+    }
+
+    private fun performSafeExit() {
+        android.util.Log.d("GameActivity", "Exit confirmed — waiting for core to flush save...")
+        android.widget.Toast.makeText(this, "Đang thoát...", android.widget.Toast.LENGTH_SHORT).show()
+
+        // MelonDS core ghi save bất đồng bộ.
+        // Poll chờ file .sav thay đổi (core đã flush) → finish.
+        // Timeout 2s vì dialog đã cho core ~1-2s rồi.
+        val savesDir = java.io.File(filesDir, "saves")
+        val saveFile = java.io.File(savesDir, "${romBaseName}.sav")
+        val initialModified = if (saveFile.exists()) saveFile.lastModified() else 0L
+        val initialSize = if (saveFile.exists()) saveFile.length() else 0L
+
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val startTime = System.currentTimeMillis()
+        val maxWait = 2000L
+        val pollInterval = 200L
+
+        val pollRunnable = object : Runnable {
+            override fun run() {
+                val elapsed = System.currentTimeMillis() - startTime
+                val currentModified = if (saveFile.exists()) saveFile.lastModified() else 0L
+                val currentSize = if (saveFile.exists()) saveFile.length() else 0L
+                val fileChanged = currentModified != initialModified || currentSize != initialSize
+
+                if (fileChanged) {
+                    android.util.Log.d("GameActivity", "Save flushed after ${elapsed}ms — exiting")
+                    finish()
+                } else if (elapsed >= maxWait) {
+                    android.util.Log.d("GameActivity", "Timeout (${maxWait}ms) — exiting anyway")
+                    finish()
+                } else {
+                    handler.postDelayed(this, pollInterval)
+                }
+            }
+        }
+
+        handler.postDelayed(pollRunnable, pollInterval)
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {

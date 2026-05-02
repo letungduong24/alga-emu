@@ -4,7 +4,7 @@ export interface Emulator {
   id: string;
   title: string;
   description: string;
-  /** Core file cho RetroArch */
+  /** Core file cho LibretroDroid */
   coreName: string;
   /** URL tải core file */
   coreUrl: string;
@@ -14,13 +14,7 @@ export interface Emulator {
   image: any;
 }
 
-// RetroArch config
-export const RETROARCH = {
-  packageName: 'com.retroarch.aarch64',
-  activityName: 'com.retroarch.browser.retroactivity.RetroActivityFuture',
-  apkUrl: 'https://buildbot.libretro.com/stable/1.22.2/android/RetroArch_aarch64.apk',
-  coreBaseUrl: 'https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/',
-};
+const CORE_BASE_URL = 'https://buildbot.libretro.com/nightly/android/latest/arm64-v8a/';
 
 export const EMULATORS: Emulator[] = [
   {
@@ -28,7 +22,7 @@ export const EMULATORS: Emulator[] = [
     title: 'Nintendo 3DS',
     description: 'Core Citra - Đồ họa 3D đỉnh cao',
     coreName: 'citra_libretro_android.so',
-    coreUrl: `${RETROARCH.coreBaseUrl}citra_libretro_android.so.zip`,
+    coreUrl: `${CORE_BASE_URL}citra_libretro_android.so.zip`,
     romExtension: ['.3ds', '.cci', '.cxi'],
     image: require('@/assets/emulators/3ds.png'),
   },
@@ -37,7 +31,7 @@ export const EMULATORS: Emulator[] = [
     title: 'Nintendo DS',
     description: 'Core melonDS - Chơi mượt, tương thích cao',
     coreName: 'melonds_libretro_android.so',
-    coreUrl: `${RETROARCH.coreBaseUrl}melonds_libretro_android.so.zip`,
+    coreUrl: `${CORE_BASE_URL}melonds_libretro_android.so.zip`,
     romExtension: ['.nds'],
     image: require('@/assets/emulators/nds.png'),
   },
@@ -46,7 +40,7 @@ export const EMULATORS: Emulator[] = [
     title: 'GameBoy Advance',
     description: 'Core mGBA - Tốc độ và độ chính xác cao',
     coreName: 'mgba_libretro_android.so',
-    coreUrl: `${RETROARCH.coreBaseUrl}mgba_libretro_android.so.zip`,
+    coreUrl: `${CORE_BASE_URL}mgba_libretro_android.so.zip`,
     romExtension: ['.gba'],
     image: require('@/assets/emulators/gba.png'),
   }

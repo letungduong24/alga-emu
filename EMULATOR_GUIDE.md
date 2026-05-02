@@ -202,19 +202,8 @@ retroView?.serializeSRAM()  // RAM → file .sav trong savesDirectory
 **Timing gọi serializeSRAM():**
 - `onPause()` — trước `super.onPause()`
 - Back button — trước `finish()`
-- Auto-save timer — mỗi 30 giây
 
-**Auto-save:**
-```kotlin
-private val handler = Handler(Looper.getMainLooper())
-private val autoSave = object : Runnable {
-    override fun run() {
-        retroView?.serializeSRAM()
-        handler.postDelayed(this, 30_000)
-    }
-}
-// Start trong onCreate, stop trong onPause, restart trong onResume
-```
+**Lưu ý melonDS**: Core ghi save **bất đồng bộ**. Khi user thoát game, app poll chờ file .sav thay đổi (tối đa 2s) trước khi finish(). Exit dialog cũng cho core thêm ~1-2s buffer.
 
 ### 5.2 Save State (Emulator save)
 
@@ -230,23 +219,125 @@ val data = File(statesDir, "game.slot0.state").readBytes()
 retroView?.unserializeState(data)  // returns Boolean
 ```
 
-### 5.3 External Storage Sync
+### 5.3 Export / Import (User-facing)
 
-Backup saves ra `/Alga/saves/` và `/Alga/states/` để user truy cập.
-Import ngược lại khi mở game (external mới hơn → copy vào internal).
+Save files chỉ lưu **internal** (`/data/data/.../files/saves/`). Để user truy cập, dùng **Export/Import**:
+
+**Export**: Copy `.sav` từ internal → `/storage/emulated/0/Alga/saves/`. Ghi đè nếu đã tồn tại. User dùng ZArchiver/PKHeX để đọc.
+
+**Import**: User chọn file `.sav` bất kỳ qua file picker (`expo-document-picker`). App copy vào internal saves directory, rename đúng tên ROM. Confirm dialog trước khi ghi đè.
+
+**Bridge API** (AppLauncherModule.kt):
+```kotlin
+exportSave(romBaseName)     // internal → /Alga/saves/{name}.sav
+importSave(romBaseName, uri) // content:// URI → internal saves
+hasSave(romBaseName)         // check internal .sav exists
+hasExternalSave(romBaseName) // check /Alga/saves/ .sav exists
+```
 
 ```
+📁 /data/data/.../files/
+├── saves/    ← SRAM files (internal, emulator đọc/ghi)
+├── states/   ← Save state files
+└── cheats/   ← Cheat configs per ROM (JSON)
+
 📁 /storage/emulated/0/Alga/
-├── cores/          ← Core .so files
-├── roms/
-│   └── melonds/    ← ROM files
-├── saves/          ← SRAM backup (.sav)
-└── states/         ← Save state backup (.state)
+├── saves/    ← Exported .sav files (user-accessible)
+├── cores/    ← Core .so files
+└── roms/     ← ROM files
 ```
 
 ---
 
-## 6. Touch Controls Overlay
+## 6. Cheat System
+
+### 6.1 Tổng quan
+
+Alga hỗ trợ cheat codes qua API `GLRetroView.setCheat()` của LibretroDroid. User tự tìm cheat code (Action Replay format) và nhập qua UI trong game.
+
+```
+User mở Settings Panel → Cheats → "+ Thêm Cheat"
+        ↓
+Nhập Tên + Code (Action Replay)
+        ↓
+GameActivity.addCheat() → save JSON → retroView.setCheat()
+        ↓
+LibretroDroid → JNI → retro_cheat_set() → Core apply
+```
+
+### 6.2 Cheat Code Format
+
+**Action Replay DS** (NDS):
+```
+DEADBEEF 0000FFFF
+12345678 ABCDEF01
+```
+- Mỗi dòng: 8 hex + space + 8 hex
+- Nhiều dòng = 1 cheat code
+- Khi lưu, multiline → joined bởi `+` (libretro format)
+
+**Lưu ý**: Cheat codes phải khớp đúng **region + version** của ROM.
+
+### 6.3 Storage
+
+Cheats lưu dạng JSON per ROM:
+
+```
+/data/data/.../files/cheats/{romBaseName}.json
+```
+
+Format:
+```json
+[
+  {
+    "name": "Infinite Money",
+    "code": "DEADBEEF 0000FFFF+12345678 ABCDEF01",
+    "enabled": true
+  }
+]
+```
+
+### 6.4 API (GameActivity)
+
+```kotlin
+// Data
+data class CheatEntry(var name: String, var code: String, var enabled: Boolean)
+val cheats: MutableList<CheatEntry>
+
+// Operations
+loadCheats()         // Đọc từ JSON file
+saveCheats()         // Ghi vào JSON file
+applyCheats()        // Apply tất cả cheats vào retroView
+addCheat(name, code) // Thêm + save + apply
+toggleCheat(index)   // Bật/tắt + save + apply
+removeCheat(index)   // Xóa + save + apply
+
+// GLRetroView API
+retroView?.setCheat(index, enabled, code)
+```
+
+### 6.5 UI trong Settings Panel
+
+- **Section "Cheats"** trong settings panel (TouchControlsOverlay)
+- **Tap** cheat item → toggle on/off (✓/✗ prefix)
+- **Long-press** cheat item → confirm dialog xóa
+- **"+ Thêm Cheat"** button → AlertDialog với 2 input (tên + code)
+- Cheats tự apply khi core ready (`GLRetroEvents.SurfaceCreated`)
+
+### 6.6 Compatibility
+
+| Core | Cheat Support | Ghi chú |
+|------|--------------|---------|
+| melonDS (NDS) | ⚠️ Không ổn định | Core thường không implement `retro_cheat_set` đầy đủ |
+| mGBA (GBA) | ✅ Tốt | Action Replay, GameShark, CodeBreaker |
+| Citra (3DS) | ❓ Chưa test | |
+| PPSSPP (PSP) | ❓ Chưa test | |
+
+> **Workaround NDS**: Nếu cheat không work qua API, user có thể dùng **DS Auto Trainer Maker (DSATM)** + `usrcheat.dat` để pre-patch ROM.
+
+---
+
+## 7. Touch Controls Overlay
 
 ### Thiết kế
 - **Canvas-based** — vẽ trực tiếp bằng Android Canvas API
@@ -276,9 +367,11 @@ val abxyCenter = Point(width - safeMargin - step, height - safeMargin - step)
 Menu items sử dụng `MenuItem(id, label, bounds)`. Touch detection bằng `bounds.contains(x, y)`.
 Panel tự tính height dựa trên nội dung thực tế.
 
+Sections: Tốc độ | Kích cỡ nút | Lưu nhanh | Tải nhanh | Bố cục (NDS) | Cheats
+
 ---
 
-## 7. Core Variables (per platform)
+## 8. Core Variables (per platform)
 
 Mỗi core có biến riêng để cấu hình. Dùng `retroView?.updateVariables()` để thay đổi runtime.
 
@@ -313,7 +406,7 @@ Variable("ppsspp_frameskip", "0")
 
 ---
 
-## 8. Thêm hệ máy mới — Checklist
+## 9. Thêm hệ máy mới — Checklist
 
 ### Bước 1: Chuẩn bị core
 - [ ] Download `.so` file cho platform target (arm64-v8a)
@@ -341,11 +434,12 @@ Variable("ppsspp_frameskip", "0")
 - [ ] Save State → Load State
 - [ ] Speed toggle
 - [ ] Screen layout (nếu có)
+- [ ] Cheats (add, toggle, persist qua restart)
 - [ ] Back button → clean exit, không crash
 
 ---
 
-## 9. Các lỗi thường gặp
+## 10. Các lỗi thường gặp
 
 | Lỗi | Nguyên nhân | Fix |
 |-----|-------------|-----|
@@ -355,10 +449,11 @@ Variable("ppsspp_frameskip", "0")
 | Black screen | Intent data sai | Check CORE_PATH, ROM_PATH trong log |
 | App crash on launch | Core ABI mismatch | Dùng đúng `.so` cho CPU (arm64-v8a) |
 | Nút tràn viền | Margin quá nhỏ | `safeMargin = unit * 1.5f` |
+| Cheat không work (NDS) | melonDS không implement retro_cheat_set | Dùng DSATM pre-patch ROM |
 
 ---
 
-## 10. API Reference — GLRetroView
+## 11. API Reference — GLRetroView
 
 ```kotlin
 // Lifecycle
@@ -380,13 +475,17 @@ retroView.serializeSRAM()    // Save battery RAM to savesDirectory
 retroView.serializeState(): ByteArray    // Snapshot toàn bộ state
 retroView.unserializeState(data): Boolean  // Restore state
 
+// Cheats
+retroView.setCheat(index, enabled, code)  // Apply cheat code
+
 // Errors
 retroView.getGLRetroErrors(): Flow<Int>  // Error stream
+retroView.getGLRetroEvents(): Flow<GLRetroEvents>  // Surface/Frame events
 ```
 
 ---
 
-## 11. File Structure
+## 12. File Structure
 
 ```
 modules/app-launcher/android/
@@ -394,19 +493,22 @@ modules/app-launcher/android/
 └── src/main/
     ├── AndroidManifest.xml         ← GameActivity registration
     └── java/expo/modules/applauncher/
-        ├── AppLauncherModule.kt    ← TS ↔ Kotlin bridge
-        ├── GameActivity.kt         ← Emulator host
-        └── TouchControlsOverlay.kt ← Touch UI
+        ├── AppLauncherModule.kt    ← TS ↔ Kotlin bridge (launch, export/import save)
+        ├── GameActivity.kt         ← Emulator host + save + cheat system
+        └── TouchControlsOverlay.kt ← Touch UI + settings panel + cheat UI
 
 /data/data/com.anonymous.algaemulatorlauncher/files/
-├── cores/    ← Internal .so copies (executable)
+├── cores/    ← Internal .so copies (executable, cần cho dlopen)
 ├── saves/    ← SRAM files (.sav)
 ├── states/   ← Save state files (.state)
+├── cheats/   ← Cheat configs per ROM (.json)
 └── system/   ← BIOS/firmware (some cores need this)
 
 /storage/emulated/0/Alga/
-├── cores/    ← User-accessible .so files
+├── cores/    ← User-accessible .so files (copy vào internal trước khi dùng)
 ├── roms/     ← ROM files organized by platform
-├── saves/    ← SRAM backup (2-way sync)
-└── states/   ← State backup (2-way sync)
+├── saves/    ← Exported .sav files (user-accessible via Export)
+└── covers/   ← Cover art cache
 ```
+
+
