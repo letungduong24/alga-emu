@@ -172,7 +172,7 @@ class GameActivity : AppCompatActivity() {
                 currentStateSlot = slot
                 android.util.Log.d("GameActivity", "State saved: ${stateFile.name} (${data.size} bytes)")
                 runOnUiThread {
-                    android.widget.Toast.makeText(this, "Đã lưu Slot $slot", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(this, "Đã lưu Slot ${slot + 1}", android.widget.Toast.LENGTH_SHORT).show()
                 }
 
                 // Backup ra external
@@ -207,7 +207,7 @@ class GameActivity : AppCompatActivity() {
 
             if (!stateFile.exists()) {
                 runOnUiThread {
-                    android.widget.Toast.makeText(this, "Slot $slot trống", android.widget.Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(this, "Slot ${slot + 1} trống", android.widget.Toast.LENGTH_SHORT).show()
                 }
                 return
             }
@@ -217,7 +217,7 @@ class GameActivity : AppCompatActivity() {
             currentStateSlot = slot
             android.util.Log.d("GameActivity", "State loaded: ${stateFile.name} (${data.size} bytes) success=$success")
             runOnUiThread {
-                android.widget.Toast.makeText(this, if (success) "Đã tải Slot $slot" else "Lỗi tải state", android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(this, if (success) "Đã tải Slot ${slot + 1}" else "Lỗi tải state", android.widget.Toast.LENGTH_SHORT).show()
             }
         } catch (e: Exception) {
             android.util.Log.e("GameActivity", "Load state failed", e)
