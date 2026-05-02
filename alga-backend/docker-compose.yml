@@ -2,10 +2,11 @@ services:
   db:
     image: postgres:16-alpine
     restart: always
+    env_file: .env
     environment:
-      POSTGRES_USER: alga
-      POSTGRES_PASSWORD: alga123
-      POSTGRES_DB: alga
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -16,13 +17,7 @@ services:
     restart: always
     depends_on:
       - db
-    environment:
-      DB_HOST: db
-      DB_PORT: "5432"
-      DB_USER: alga
-      DB_PASS: alga123
-      DB_NAME: alga
-      PORT: "3000"
+    env_file: .env
     ports:
       - "3000:3000"
 
