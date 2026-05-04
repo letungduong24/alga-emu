@@ -66,16 +66,16 @@ export async function cancelNativeDownload(downloadId: string): Promise<boolean>
 }
 
 // === Save Management ===
-export async function exportSave(romBaseName: string): Promise<string> {
-  return AppLauncherModule.exportSave(romBaseName);
+export async function exportSave(romBaseName: string, coreId: string): Promise<string> {
+  return AppLauncherModule.exportSave(romBaseName, coreId);
 }
 
-export async function importSave(romBaseName: string, sourceUri: string): Promise<string> {
-  return AppLauncherModule.importSave(romBaseName, sourceUri);
+export async function importSave(romBaseName: string, sourceUri: string, coreId: string): Promise<string> {
+  return AppLauncherModule.importSave(romBaseName, sourceUri, coreId);
 }
 
-export async function hasSave(romBaseName: string): Promise<boolean> {
-  return AppLauncherModule.hasSave(romBaseName);
+export async function hasSave(romBaseName: string, coreId: string): Promise<boolean> {
+  return AppLauncherModule.hasSave(romBaseName, coreId);
 }
 
 export async function hasExternalSave(romBaseName: string): Promise<boolean> {
@@ -94,4 +94,9 @@ export async function requestStoragePermission(): Promise<boolean> {
 // === NDS ROM Icon Extraction ===
 export async function extractNdsIcon(romPath: string, outputPngPath: string): Promise<boolean> {
   return AppLauncherModule.extractNdsIcon(romPath, outputPngPath);
+}
+
+// === 3DS ROM Icon Extraction ===
+export async function extract3dsIcon(romPath: string, outputPngPath: string): Promise<boolean> {
+  return AppLauncherModule.extract3dsIcon(romPath, outputPngPath);
 }

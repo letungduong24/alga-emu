@@ -11,6 +11,7 @@ import {
   fileExists,
   DownloadProgress,
   extractNdsIcon,
+  extract3dsIcon,
 } from '../../modules/app-launcher';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useQueryClient } from '@tanstack/react-query';
@@ -183,10 +184,9 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
       await createDirectory(meta.romDir);
       await unzip(meta.zipPath, meta.romDir);
 
-      // Cleanup zip from Downloads folder
+      // Cleanup: delete the ZIP file after successful extraction
       try {
-        const RNFS = require('react-native-fs');
-        // fallback: just delete via shell or ignore
+        await deleteFileOrDir(meta.zipPath);
       } catch {}
 
       await AsyncStorage.removeItem(`dl_native_${gameId}`);
@@ -201,18 +201,20 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
         if (game) {
           addToDownloaded(game);
 
-          // Extract NDS icon from ROM immediately after download
-          if (game.platform === 'nds' && rom) {
-            const coverPath = `${COVER_DIR}/${game.id}.png`;
-            fileExists(coverPath).then(async (exists) => {
-              if (!exists) {
-                try {
-                  await createDirectory(COVER_DIR);
+          // Extract icon from ROM immediately after download
+          const coverPath = `${COVER_DIR}/${game.id}.png`;
+          fileExists(coverPath).then(async (exists) => {
+            if (!exists) {
+              try {
+                await createDirectory(COVER_DIR);
+                if (game.platform === 'nds') {
                   await extractNdsIcon(rom, coverPath);
-                } catch {}
-              }
-            });
-          }
+                } else if (game.platform === '3ds') {
+                  await extract3dsIcon(rom, coverPath);
+                }
+              } catch {}
+            }
+          });
         }
 
         queryClient.invalidateQueries({ queryKey: ['games'] });
@@ -475,59 +477,110 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
 
   // === Scan local filesystem for library (no API needed) ===
   const scanLocalLibrary = useCallback(async (emulatorId: string, romExtensions: string[]) => {
-    // Map emulatorId to platform
     const platformMap: Record<string, string> = { melonds: 'nds', desmume: 'nds', citra: '3ds', mgba: 'gba' };
     const platform = platformMap[emulatorId] ?? '';
 
     try {
       const baseDir = `${EXTERNAL_ROM_DIR}/${emulatorId}`;
       let romFiles: string[] = [];
+      let subDirs: string[] = [];
       try {
         const files = await listFiles(baseDir);
         romFiles = files.filter((f: string) => {
           const lower = f.toLowerCase();
           return romExtensions.some((ext) => lower.endsWith(ext));
         });
+        // Get unique subdirectory names from ROM file paths
+        subDirs = [...new Set(romFiles.map((f: string) => {
+          const rel = f.replace(baseDir + '/', '');
+          return rel.split('/')[0];
+        }))];
       } catch {} // Directory might not exist yet
 
-      // Only verify games for THIS platform, keep other platforms untouched
       setDownloadedGames((prev) => {
         const otherPlatformGames = prev.filter((g) => g.platform !== platform);
         const thisPlatformGames = prev.filter((g) => g.platform === platform);
 
+        // Verify existing entries
         const verified = thisPlatformGames.filter((g) => {
           const gameFolder = g.filename.replace(/\.zip$/i, '');
           const expectedDir = `${baseDir}/${gameFolder}`;
           return romFiles.some((f: string) => f.startsWith(expectedDir));
         });
 
-        const updated = [...otherPlatformGames, ...verified];
-        if (updated.length !== prev.length) {
+        // Auto-discover: find ROM folders NOT in existing downloadedGames
+        const knownFolders = new Set(thisPlatformGames.map((g) => g.filename.replace(/\.zip$/i, '')));
+        const discovered: ApiGame[] = [];
+        for (const dir of subDirs) {
+          if (!knownFolders.has(dir)) {
+            // Found a ROM folder not tracked — create a local entry
+            const romInDir = romFiles.find((f: string) => f.startsWith(`${baseDir}/${dir}/`));
+            if (romInDir) {
+              // Generate stable negative ID from folder name hash
+              let hash = 0;
+              for (let i = 0; i < dir.length; i++) {
+                hash = ((hash << 5) - hash + dir.charCodeAt(i)) | 0;
+              }
+              const localId = -(Math.abs(hash) % 900000000 + 100000000);
+
+              // Clean up name from folder
+              const cleanName = dir
+                .replace(/^\d+\s*-\s*/, '') // Remove "0001 - " prefix
+                .replace(/\s*\(.*?\)\s*/g, ' ') // Remove (USA) etc.
+                .trim();
+
+              discovered.push({
+                id: localId,
+                name: cleanName || dir,
+                platform,
+                filename: dir + '.zip',
+                downloadUrl: '',
+                size: 0,
+              });
+
+              // Track ROM path
+              romPaths.current.set(localId, romInDir);
+            }
+          }
+        }
+
+        const updated = [...otherPlatformGames, ...verified, ...discovered];
+        if (updated.length !== prev.length || discovered.length > 0) {
           persistDownloadedGames(updated);
           const ids = new Set(updated.map((g) => g.id));
           setDownloadedGameIds(ids);
         }
-        // Extract NDS icons for verified games
-        for (const g of verified) {
-          // Extract icon from NDS ROM if no cover exists yet
-          if (platform === 'nds') {
-            const coverPath = `${COVER_DIR}/${g.id}.png`;
-            fileExists(coverPath).then(async (exists) => {
-              if (!exists) {
-                const gameFolder = g.filename.replace(/\.zip$/i, '');
-                const romDir = `${baseDir}/${gameFolder}`;
-                try {
-                  const romDirFiles = await listFiles(romDir);
+
+        // Extract icons for verified + discovered games
+        const allGames = [...verified, ...discovered];
+        for (const g of allGames) {
+          const coverPath = `${COVER_DIR}/${g.id}.png`;
+          fileExists(coverPath).then(async (exists) => {
+            if (!exists) {
+              const gameFolder = g.filename.replace(/\.zip$/i, '');
+              const romDir = `${baseDir}/${gameFolder}`;
+              try {
+                const romDirFiles = await listFiles(romDir);
+                if (platform === 'nds') {
                   const ndsFile = romDirFiles.find((f: string) => f.toLowerCase().endsWith('.nds'));
                   if (ndsFile) {
                     await createDirectory(COVER_DIR);
                     await extractNdsIcon(ndsFile, coverPath);
                   }
-                } catch {}
-              }
-            });
-          }
+                } else if (platform === '3ds') {
+                  const tdsFile = romDirFiles.find((f: string) =>
+                    f.toLowerCase().endsWith('.3ds') || f.toLowerCase().endsWith('.3dsx')
+                  );
+                  if (tdsFile) {
+                    await createDirectory(COVER_DIR);
+                    await extract3dsIcon(tdsFile, coverPath);
+                  }
+                }
+              } catch {}
+            }
+          });
         }
+
         return updated;
       });
     } catch {}

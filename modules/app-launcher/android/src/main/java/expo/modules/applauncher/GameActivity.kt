@@ -1,9 +1,12 @@
 package expo.modules.applauncher
 
 import android.os.Bundle
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.hardware.input.InputManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -17,9 +20,11 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import androidx.lifecycle.lifecycleScope
 
-class GameActivity : AppCompatActivity() {
+class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener {
 
     var retroView: GLRetroView? = null
+    private var touchControls: TouchControlsOverlay? = null
+    private var inputManager: InputManager? = null
 
     // melonDS layouts
     private val melondsLayouts = arrayOf(
@@ -38,6 +43,7 @@ class GameActivity : AppCompatActivity() {
     private var screenLayoutVar = "melonds_screen_layout"
     private var isMelonDS = true
     var is3DS = false
+    var isGBA = false
     var currentLayoutIndex = 0
     var currentStateSlot = 0
     private var romBaseName: String = ""
@@ -176,6 +182,11 @@ class GameActivity : AppCompatActivity() {
             screenLayouts = citraLayouts
             screenLayoutVar = "citra_layout_option"
         }
+
+        isGBA = corePath.contains("mgba", ignoreCase = true) ||
+                corePath.contains("vba", ignoreCase = true) ||
+                corePath.contains("gpsp", ignoreCase = true)
+
         val hasDualScreen = isNDS || is3DS
 
         val viewData = GLRetroViewData(this).apply {
@@ -204,7 +215,19 @@ class GameActivity : AppCompatActivity() {
             if (is3DS) {
                 variables = arrayOf(
                     Variable("citra_layout_option", screenLayouts[0]),
-                    Variable("citra_use_hw_renderer", "enabled"),
+                    Variable("citra_analog_function", "C-Stick and Touchscreen Pointer"),
+                    Variable("citra_is_new_3ds", "New 3DS"),
+                    Variable("citra_use_virtual_sd", "enabled"),
+                    Variable("citra_touch_touchscreen", "enabled"),
+                    Variable("citra_use_hw_shader", "disabled"),  // Fix crash on Android GPUs (Mario Kart 7 etc.)
+                    Variable("citra_resolution_factor", "1"),     // Native res to prevent OOM
+                )
+            }
+            if (isGBA) {
+                variables = arrayOf(
+                    Variable("mgba_solar_sensor_level", "0"),
+                    Variable("mgba_sgb_borders", "OFF"),
+                    Variable("mgba_color_correction", "Game Boy Advance"),
                 )
             }
         }
@@ -252,11 +275,12 @@ class GameActivity : AppCompatActivity() {
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
 
-        val touchControls = TouchControlsOverlay(this)
-        touchControls.retroView = retroView
-        touchControls.gameActivity = this
-        touchControls.isNDS = isNDS
-        touchControls.is3DS = is3DS
+        touchControls = TouchControlsOverlay(this)
+        touchControls!!.retroView = retroView
+        touchControls!!.gameActivity = this
+        touchControls!!.isNDS = isNDS
+        touchControls!!.is3DS = is3DS
+        touchControls!!.isGBA = isGBA
         container.addView(touchControls, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
@@ -271,17 +295,55 @@ class GameActivity : AppCompatActivity() {
         }
 
         lifecycle.addObserver(retroView!!)
+
+        // === Gamepad detection ===
+        inputManager = getSystemService(INPUT_SERVICE) as InputManager
+        inputManager?.registerInputDeviceListener(this, null)
+        updateGamepadState()
     }
 
     override fun onDestroy() {
+        inputManager?.unregisterInputDeviceListener(this)
         retroView?.let {
             lifecycle.removeObserver(it)
             (it.parent as? android.view.ViewGroup)?.removeView(it)
         }
         retroView = null
+        touchControls = null
         super.onDestroy()
         // Force kill :game process to fully clean native .so state
         android.os.Process.killProcess(android.os.Process.myPid())
+    }
+
+    // === Physical Gamepad Support ===
+    override fun onInputDeviceAdded(deviceId: Int) { updateGamepadState() }
+    override fun onInputDeviceRemoved(deviceId: Int) { updateGamepadState() }
+    override fun onInputDeviceChanged(deviceId: Int) { updateGamepadState() }
+
+    private fun updateGamepadState() {
+        val connected = isGamepadConnected()
+        android.util.Log.d("GameActivity", "Gamepad connected: $connected")
+        touchControls?.gamepadConnected = connected
+    }
+
+    private fun isGamepadConnected(): Boolean {
+        return InputDevice.getDeviceIds().any { id ->
+            InputDevice.getDevice(id)?.let { device ->
+                val sources = device.sources
+                (sources and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD) ||
+                (sources and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK)
+            } ?: false
+        }
+    }
+
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        val source = event.source
+        if ((source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK ||
+             source and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD) &&
+            event.action == MotionEvent.ACTION_MOVE) {
+            return retroView?.onGenericMotionEvent(event) ?: super.onGenericMotionEvent(event)
+        }
+        return super.onGenericMotionEvent(event)
     }
 
     // === NDS screen layout ===

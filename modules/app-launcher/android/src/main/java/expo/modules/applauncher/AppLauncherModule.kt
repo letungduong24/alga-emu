@@ -124,33 +124,160 @@ class AppLauncherModule : Module() {
       true
     }
 
-    // === EXPORT SAVE — Copy .sav ra /Alga/saves/ ===
-    AsyncFunction("exportSave") { romBaseName: String ->
+    // === Get the correct save extension for a given core ===
+    fun getSaveExtForCore(coreId: String): String {
+      return when {
+        coreId.contains("desmume", ignoreCase = true) -> ".dsv"
+        coreId.contains("melonds", ignoreCase = true) -> ".sav"
+        coreId.contains("citra", ignoreCase = true) -> ".citra" // special marker
+        coreId.contains("mgba", ignoreCase = true) -> ".srm"
+        else -> ".srm"
+      }
+    }
+
+    // === Find save file matching romBaseName, prioritizing core-specific extension ===
+    fun findSaveFile(savesDir: File, romBaseName: String, coreId: String = ""): File? {
+      if (!savesDir.exists()) return null
+
+      // Core-specific extension first
+      val coreExt = getSaveExtForCore(coreId)
+      if (coreExt != ".citra") {
+        val coreFile = File(savesDir, "${romBaseName}${coreExt}")
+        if (coreFile.exists() && coreFile.length() > 0L) return coreFile
+      }
+
+      // Then try all known extensions
+      val saveExts = listOf(".dsv", ".sav", ".srm", ".dat", ".bin")
+      for (ext in saveExts) {
+        val f = File(savesDir, "${romBaseName}${ext}")
+        if (f.exists() && f.length() > 0L) return f
+      }
+
+      // Prefix match (any file with matching base name)
+      return savesDir.listFiles()?.firstOrNull { f ->
+        f.isFile && f.length() > 0L && f.nameWithoutExtension.equals(romBaseName, ignoreCase = true)
+      }
+    }
+
+    // === Check for Citra (3DS) save directory ===
+    fun hasCitraSave(savesDir: File): Boolean {
+      val citraDir = File(savesDir, "Citra")
+      if (citraDir.exists() && citraDir.isDirectory) {
+        return citraDir.walkTopDown().any { it.isFile && it.length() > 0L }
+      }
+      return false
+    }
+
+    // === EXPORT SAVE ===
+    // coreId: "desmume", "melonds", "citra", "mgba" etc.
+    AsyncFunction("exportSave") { romBaseName: String, coreId: String ->
       val context = appContext.reactContext ?: throw Exception("Context is null")
       val savesDir = File(context.filesDir, "saves")
-      val saveFile = File(savesDir, "${romBaseName}.sav")
 
-      if (!saveFile.exists() || saveFile.length() == 0L) {
+      // Citra: export directory as zip
+      if (coreId.contains("citra", ignoreCase = true)) {
+        val citraDir = File(savesDir, "Citra")
+        if (citraDir.exists() && citraDir.isDirectory && citraDir.walkTopDown().any { it.isFile }) {
+          val externalSaves = File(Environment.getExternalStorageDirectory(), "Alga/saves")
+          if (!externalSaves.exists()) externalSaves.mkdirs()
+          val externalFile = File(externalSaves, "${romBaseName}_3ds_save.zip")
+          val zipOut = java.util.zip.ZipOutputStream(FileOutputStream(externalFile))
+          citraDir.walkTopDown().filter { it.isFile }.forEach { file ->
+            val entryPath = file.relativeTo(savesDir).path
+            zipOut.putNextEntry(java.util.zip.ZipEntry(entryPath))
+            file.inputStream().use { it.copyTo(zipOut) }
+            zipOut.closeEntry()
+          }
+          zipOut.close()
+          android.util.Log.d("AppLauncher", "Exported Citra saves: ${externalFile.absolutePath}")
+          return@AsyncFunction externalFile.absolutePath
+        }
+        throw Exception("Chưa có save cho game này")
+      }
+
+      // Standard: find and copy save file
+      val saveFile = findSaveFile(savesDir, romBaseName, coreId)
+      if (saveFile == null) {
+        // Log what IS in the saves dir for debugging
+        android.util.Log.w("AppLauncher", "No save found for '$romBaseName' (core=$coreId)")
+        savesDir.listFiles()?.forEach { f ->
+          android.util.Log.w("AppLauncher", "  saves/${f.name} (${f.length()} bytes)")
+        }
         throw Exception("Chưa có save cho game này")
       }
 
       val externalSaves = File(Environment.getExternalStorageDirectory(), "Alga/saves")
       if (!externalSaves.exists()) externalSaves.mkdirs()
-      val externalFile = File(externalSaves, "${romBaseName}.sav")
+      val externalFile = File(externalSaves, saveFile.name)
       saveFile.copyTo(externalFile, overwrite = true)
 
       android.util.Log.d("AppLauncher", "Exported save: ${externalFile.absolutePath} (${externalFile.length()} bytes)")
       externalFile.absolutePath
     }
 
-    // === IMPORT SAVE — Copy từ /Alga/saves/ vào internal ===
-    AsyncFunction("importSave") { romBaseName: String, sourceUri: String ->
+    // === IMPORT SAVE ===
+    // coreId determines which extension to use for the imported file
+    // For Citra: imported file should be a zip containing Citra/ directory structure
+    AsyncFunction("importSave") { romBaseName: String, sourceUri: String, coreId: String ->
       val context = appContext.reactContext ?: throw Exception("Context is null")
       val savesDir = File(context.filesDir, "saves")
       if (!savesDir.exists()) savesDir.mkdirs()
-      val destFile = File(savesDir, "${romBaseName}.sav")
 
-      // sourceUri có thể là file path hoặc content URI
+      // === Citra: extract zip to restore directory structure ===
+      if (coreId.contains("citra", ignoreCase = true)) {
+        val uri = Uri.parse(sourceUri)
+        val inputStream = if (sourceUri.startsWith("content://") || sourceUri.startsWith("file://")) {
+          context.contentResolver.openInputStream(uri)
+        } else {
+          File(sourceUri).inputStream()
+        } ?: throw Exception("Không thể đọc file: $sourceUri")
+
+        // Check if it's a zip file by trying to read as zip
+        try {
+          val zipIn = java.util.zip.ZipInputStream(inputStream)
+          var entry = zipIn.nextEntry
+          var extractedCount = 0
+
+          if (entry == null) {
+            zipIn.close()
+            throw Exception("File không phải định dạng zip")
+          }
+
+          // Merge: overwrite files from zip, but keep existing saves for other games
+          // (Citra saves are organized by title ID, so different games don't conflict)
+
+          while (entry != null) {
+            if (!entry.isDirectory) {
+              val outFile = File(savesDir, entry.name)
+              outFile.parentFile?.mkdirs()
+              FileOutputStream(outFile).use { fos ->
+                zipIn.copyTo(fos)
+              }
+              extractedCount++
+            }
+            zipIn.closeEntry()
+            entry = zipIn.nextEntry
+          }
+          zipIn.close()
+
+          android.util.Log.d("AppLauncher", "Imported Citra saves: $extractedCount files extracted")
+          return@AsyncFunction "${savesDir.absolutePath}/Citra"
+        } catch (e: java.util.zip.ZipException) {
+          android.util.Log.w("AppLauncher", "Not a zip file, trying as raw save")
+          // Fall through to standard import
+        }
+      }
+
+      // === Standard: single file import ===
+      val existing = findSaveFile(savesDir, romBaseName, coreId)
+      val ext = if (existing != null) {
+        "." + existing.extension
+      } else {
+        val coreExt = getSaveExtForCore(coreId)
+        if (coreExt == ".citra") ".sav" else coreExt
+      }
+      val destFile = File(savesDir, "${romBaseName}${ext}")
+
       if (sourceUri.startsWith("content://") || sourceUri.startsWith("file://")) {
         val uri = Uri.parse(sourceUri)
         context.contentResolver.openInputStream(uri)?.use { input ->
@@ -159,27 +286,31 @@ class AppLauncherModule : Module() {
           }
         } ?: throw Exception("Không thể đọc file: $sourceUri")
       } else {
-        // Plain file path
         val srcFile = File(sourceUri)
         if (!srcFile.exists()) throw Exception("File không tồn tại: $sourceUri")
         srcFile.copyTo(destFile, overwrite = true)
       }
 
-      android.util.Log.d("AppLauncher", "Imported save: ${destFile.name} (${destFile.length()} bytes)")
+      android.util.Log.d("AppLauncher", "Imported save: ${destFile.name} (${destFile.length()} bytes) for core=$coreId")
       destFile.absolutePath
     }
 
     // === CHECK SAVE EXISTS ===
-    AsyncFunction("hasSave") { romBaseName: String ->
+    AsyncFunction("hasSave") { romBaseName: String, coreId: String ->
       val context = appContext.reactContext ?: throw Exception("Context is null")
-      val saveFile = File(context.filesDir, "saves/${romBaseName}.sav")
-      saveFile.exists() && saveFile.length() > 0L
+      val savesDir = File(context.filesDir, "saves")
+      if (coreId.contains("citra", ignoreCase = true)) {
+        return@AsyncFunction hasCitraSave(savesDir)
+      }
+      findSaveFile(savesDir, romBaseName, coreId) != null
     }
 
     // === CHECK EXTERNAL SAVE EXISTS (for import) ===
     AsyncFunction("hasExternalSave") { romBaseName: String ->
-      val externalFile = File(Environment.getExternalStorageDirectory(), "Alga/saves/${romBaseName}.sav")
-      externalFile.exists() && externalFile.length() > 0L
+      val externalSaves = File(Environment.getExternalStorageDirectory(), "Alga/saves")
+      if (!externalSaves.exists()) return@AsyncFunction false
+      val saveExts = listOf(".dsv", ".sav", ".srm")
+      saveExts.any { File(externalSaves, "${romBaseName}${it}").let { f -> f.exists() && f.length() > 0L } }
     }
 
     // === BACKGROUND DOWNLOAD — Android DownloadManager ===
@@ -371,5 +502,153 @@ class AppLauncherModule : Module() {
         false
       }
     }
+
+    // === EXTRACT 3DS ROM ICON ===
+    // Reads SMDH icon from NCSD (.3ds) ROM files
+    AsyncFunction("extract3dsIcon") { romPath: String, outputPngPath: String ->
+      try {
+        val romFile = File(romPath)
+        if (!romFile.exists()) return@AsyncFunction false
+
+        val raf = RandomAccessFile(romFile, "r")
+        var iconPixels: IntArray? = null
+
+        // Step 1: Read magic at 0x100 to detect format
+        raf.seek(0x100)
+        val magic = ByteArray(4)
+        raf.readFully(magic)
+        val magicStr = String(magic)
+
+        var ncchStart: Long = -1
+
+        if (magicStr == "NCSD") {
+          // NCSD format (.3ds game card image)
+          // Partition table at 0x120: partition 0 offset (in media units = 0x200)
+          raf.seek(0x120)
+          val partition0OffsetMU = readLE32(raf)
+          ncchStart = partition0OffsetMU.toLong() * 0x200
+          android.util.Log.d("AppLauncher", "NCSD: partition0 at 0x${ncchStart.toString(16)}")
+        } else if (magicStr == "NCCH") {
+          // Plain NCCH file (CXI)
+          ncchStart = 0
+        }
+
+        if (ncchStart >= 0) {
+          // Verify NCCH magic at ncchStart + 0x100
+          raf.seek(ncchStart + 0x100)
+          val ncchMagic = ByteArray(4)
+          raf.readFully(ncchMagic)
+
+          if (String(ncchMagic) == "NCCH") {
+            // ExeFS offset at NCCH + 0x1A0 (in media units, relative to NCCH start)
+            raf.seek(ncchStart + 0x1A0)
+            val exefsOffsetMU = readLE32(raf)
+            val exefsOffset = ncchStart + exefsOffsetMU.toLong() * 0x200
+            android.util.Log.d("AppLauncher", "ExeFS at 0x${exefsOffset.toString(16)}")
+
+            // ExeFS header: 10 entries × 16 bytes (8 name + 4 offset + 4 size)
+            for (i in 0 until 10) {
+              raf.seek(exefsOffset + i * 16)
+              val nameBytes = ByteArray(8)
+              raf.readFully(nameBytes)
+              val entryName = String(nameBytes).trim('\u0000')
+              val entryOffset = readLE32(raf)
+              val entrySize = readLE32(raf)
+
+              if (entryName == "icon" && entrySize > 0) {
+                // SMDH at exefsOffset + 0x200 (header) + entryOffset
+                val smdhOffset = exefsOffset + 0x200 + entryOffset.toLong()
+                android.util.Log.d("AppLauncher", "SMDH at 0x${smdhOffset.toString(16)}, size=$entrySize")
+                iconPixels = extractSmdhIcon(raf, smdhOffset)
+                break
+              }
+            }
+          } else {
+            android.util.Log.w("AppLauncher", "NCCH magic not found at 0x${(ncchStart + 0x100).toString(16)}")
+          }
+        }
+
+        raf.close()
+
+        if (iconPixels != null) {
+          val bmp = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888)
+          bmp.setPixels(iconPixels, 0, 48, 0, 0, 48, 48)
+          val scaled = Bitmap.createScaledBitmap(bmp, 128, 128, true)
+          bmp.recycle()
+
+          val outFile = File(outputPngPath)
+          outFile.parentFile?.mkdirs()
+          FileOutputStream(outFile).use { fos ->
+            scaled.compress(Bitmap.CompressFormat.PNG, 100, fos)
+          }
+          scaled.recycle()
+          android.util.Log.d("AppLauncher", "Extracted 3DS icon: $outputPngPath")
+          true
+        } else {
+          android.util.Log.w("AppLauncher", "Could not find SMDH icon in 3DS ROM")
+          false
+        }
+      } catch (e: Exception) {
+        android.util.Log.e("AppLauncher", "Failed to extract 3DS icon: ${e.message}", e)
+        false
+      }
+    }
+  }
+
+  // Helper: read 32-bit little-endian int
+  private fun readLE32(raf: RandomAccessFile): Int {
+    val b = ByteArray(4)
+    raf.readFully(b)
+    return (b[0].toInt() and 0xFF) or
+      ((b[1].toInt() and 0xFF) shl 8) or
+      ((b[2].toInt() and 0xFF) shl 16) or
+      ((b[3].toInt() and 0xFF) shl 24)
+  }
+
+  // Extract 48x48 large icon from SMDH data
+  private fun extractSmdhIcon(raf: RandomAccessFile, smdhOffset: Long): IntArray? {
+    // SMDH magic at offset 0: "SMDH"
+    raf.seek(smdhOffset)
+    val magic = ByteArray(4)
+    raf.readFully(magic)
+    if (String(magic) != "SMDH") return null
+
+    // Large icon: 48x48 RGB565, starts at SMDH + 0x24C0
+    val iconOffset = smdhOffset + 0x24C0
+    raf.seek(iconOffset)
+    val iconData = ByteArray(48 * 48 * 2) // RGB565, 2 bytes per pixel
+    raf.readFully(iconData)
+
+    // Decode tiled RGB565 → ARGB pixels
+    // 3DS icons use Morton/Z-order tiling in 8x8 tiles
+    // Each 8x8 tile stores pixels in Z-curve order (bit-interleaved x,y)
+    val pixels = IntArray(48 * 48)
+
+    var dataIdx = 0
+    for (tileY in 0 until 6) {
+      for (tileX in 0 until 6) {
+        for (morton in 0 until 64) {
+          if (dataIdx + 1 >= iconData.size) break
+          val lo = iconData[dataIdx].toInt() and 0xFF
+          val hi = iconData[dataIdx + 1].toInt() and 0xFF
+          val rgb565 = lo or (hi shl 8)
+
+          val r = ((rgb565 shr 11) and 0x1F) * 255 / 31
+          val g = ((rgb565 shr 5) and 0x3F) * 255 / 63
+          val b = (rgb565 and 0x1F) * 255 / 31
+
+          // Decode Morton Z-order: deinterleave bits to get (x, y) within tile
+          val x = (morton and 1) or ((morton shr 1) and 2) or ((morton shr 2) and 4)
+          val y = ((morton shr 1) and 1) or ((morton shr 2) and 2) or ((morton shr 3) and 4)
+          val px = tileX * 8 + x
+          val py = tileY * 8 + y
+          if (px < 48 && py < 48) {
+            pixels[py * 48 + px] = Color.argb(255, r, g, b)
+          }
+          dataIdx += 2
+        }
+      }
+    }
+    return pixels
   }
 }

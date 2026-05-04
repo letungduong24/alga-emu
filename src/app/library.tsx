@@ -72,10 +72,18 @@ export default function LibraryScreen() {
   const selectedGame = filteredGames[selectedIndex] ?? null;
   const carouselPadding = (width - CARD_WIDTH) / 2;
 
-  // Get romBaseName from game
+  // Get romBaseName from actual ROM file (core saves use ROM filename, not zip name)
   const getRomBaseName = useCallback((game: ApiGame) => {
+    const romPath = getRomPath(game.id);
+    if (romPath) {
+      // Extract filename without extension from full path
+      const fileName = romPath.split('/').pop() || '';
+      const dotIdx = fileName.lastIndexOf('.');
+      return dotIdx > 0 ? fileName.substring(0, dotIdx) : fileName;
+    }
+    // Fallback to zip name
     return game.filename.replace(/\.zip$/i, '');
-  }, []);
+  }, [getRomPath]);
 
   // Play game
   const handlePlay = useCallback(async (game?: ApiGame) => {
@@ -124,19 +132,21 @@ export default function LibraryScreen() {
   const handleExportSave = useCallback(async (game: ApiGame) => {
     try {
       const romBase = getRomBaseName(game);
-      const exists = await hasSave(romBase);
+      const coreId = emulatorId ?? '';
+      const exists = await hasSave(romBase, coreId);
       if (!exists) {
         setExportAlert({ title: 'Không có save', message: `Game "${game.name}" chưa có file save nào.` });
         setActionTarget(null);
         return;
       }
-      await exportSave(romBase);
-      setExportAlert({ title: 'Export thành công', message: `Đã lưu tại:\n/Alga/saves/${romBase}.sav` });
+      const path = await exportSave(romBase, coreId);
+      const fileName = path.split('/').pop() || romBase;
+      setExportAlert({ title: 'Export thành công', message: `Đã lưu tại:\n/Alga/saves/${fileName}` });
     } catch (e: any) {
       setExportAlert({ title: 'Lỗi', message: e.message });
     }
     setActionTarget(null);
-  }, [getRomBaseName]);
+  }, [getRomBaseName, emulatorId]);
 
   // Import save — file picker + custom alert confirm/success
   const [importPending, setImportPending] = useState<{ romBase: string; fileUri: string; fileName: string; gameName: string } | null>(null);
@@ -163,13 +173,14 @@ export default function LibraryScreen() {
   const handleImportConfirm = useCallback(async () => {
     if (!importPending) return;
     try {
-      await importSave(importPending.romBase, importPending.fileUri);
+      const coreId = emulatorId ?? '';
+      await importSave(importPending.romBase, importPending.fileUri, coreId);
       setExportAlert({ title: 'Import thành công', message: `Đã import save cho "${importPending.gameName}"` });
     } catch (e: any) {
       setExportAlert({ title: 'Lỗi', message: e.message });
     }
     setImportPending(null);
-  }, [importPending]);
+  }, [importPending, emulatorId]);
 
   const onScrollEnd = (e: any) => {
     const x = e.nativeEvent.contentOffset.x;
