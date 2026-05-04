@@ -15,6 +15,7 @@ interface EmulatorCardProps {
   isDownloading: boolean;
   progress: number;
   onPress: () => void;
+  size?: number;
 }
 
 export const EmulatorCard = ({ 
@@ -22,7 +23,8 @@ export const EmulatorCard = ({
   isSelected, 
   isDownloading,
   progress,
-  onPress
+  onPress,
+  size = 180,
 }: EmulatorCardProps) => {
   
   const scale = useSharedValue(1);
@@ -60,8 +62,8 @@ export const EmulatorCard = ({
         disabled={isDownloading && !isSelected}
       >
         <Animated.View 
-          style={animatedCardStyle}
-          className="w-[180px] h-[180px] rounded-2xl overflow-hidden bg-white/5 border-white/10 relative"
+          style={[animatedCardStyle, { width: size, height: size }]}
+          className="rounded-2xl overflow-hidden bg-white/5 border-white/10 relative"
         >
           <Image 
             source={image} 

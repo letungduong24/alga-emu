@@ -20,8 +20,6 @@ function cleanGameName(filename: string): string {
     .replace(/\s*\((?:En|Fr|De|Es|It|Nl|Pt|Ru|Sv|No|Da|Fi|Ja|Zh|Ko|Ar|Tr|El)(?:,[A-Za-z]+)*\)/gi, "")
     // Remove revision tags like (Rev 1)
     .replace(/\s*\(Rev \d+\)/gi, "")
-    // Remove region tags like (USA), (Europe), (Japan), (Germany), etc.
-    .replace(/\s*\((?:USA|Europe|Japan|Germany|France|Spain|Italy|Netherlands|Australia|China|Korea|Brazil|Sweden|Norway|Denmark|Finland|Unknown|World)(?:,\s*(?:USA|Europe|Japan|Germany|France|Spain|Italy|Netherlands|Australia|China|Korea|Brazil|Sweden|Norway|Denmark|Finland|Unknown|World))*\)/gi, "")
     // Remove misc tags
     .replace(/\s*\(Beta\)/gi, " [Beta]")
     .replace(/\s*\(Proto\)/gi, " [Proto]")

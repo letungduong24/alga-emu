@@ -27,9 +27,13 @@ type ViewMode = 'carousel' | 'grid';
 
 export default function LibraryScreen() {
   const { emulatorId } = useLocalSearchParams<{ emulatorId: string }>();
-  const { width } = useWindowDimensions();
+  const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const isLandscape = width > height;
+
+  const CARD_W = isLandscape ? 140 : CARD_WIDTH;
+  const SNAP = CARD_W + CARD_MARGIN * 2;
 
   const emulator = EMULATORS.find((e) => e.id === emulatorId);
   const {
@@ -70,7 +74,7 @@ export default function LibraryScreen() {
   }, [emulator]);
 
   const selectedGame = filteredGames[selectedIndex] ?? null;
-  const carouselPadding = (width - CARD_WIDTH) / 2;
+  const carouselPadding = (width - CARD_W) / 2;
 
   // Get romBaseName from actual ROM file (core saves use ROM filename, not zip name)
   const getRomBaseName = useCallback((game: ApiGame) => {
@@ -184,7 +188,7 @@ export default function LibraryScreen() {
 
   const onScrollEnd = (e: any) => {
     const x = e.nativeEvent.contentOffset.x;
-    const index = Math.round(x / SNAP_INTERVAL);
+    const index = Math.round(x / SNAP);
     if (index >= 0 && index < filteredGames.length) setSelectedIndex(index);
   };
 
@@ -419,12 +423,12 @@ export default function LibraryScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: carouselPadding, alignItems: 'center' }}
-          snapToInterval={SNAP_INTERVAL}
+          snapToInterval={SNAP}
           decelerationRate="fast"
           onMomentumScrollEnd={onScrollEnd}
           onScroll={(e) => {
             const x = e.nativeEvent.contentOffset.x;
-            const idx = Math.round(x / SNAP_INTERVAL);
+            const idx = Math.round(x / SNAP);
             if (idx >= 0 && idx < filteredGames.length && idx !== selectedIndex) setSelectedIndex(idx);
           }}
           scrollEventThrottle={16}
@@ -439,6 +443,8 @@ export default function LibraryScreen() {
                 }
               }}
               onLongPress={() => setActionTarget(item)}
+              cardWidth={CARD_W}
+              isLandscape={isLandscape}
             />
           )}
         />
@@ -556,14 +562,18 @@ interface CarouselItemProps {
   isSelected: boolean;
   onPress: () => void;
   onLongPress: () => void;
+  cardWidth?: number;
+  isLandscape?: boolean;
 }
 
-const CarouselItem: React.FC<CarouselItemProps> = ({ game, isSelected, onPress, onLongPress }) => {
-  const scale = useSharedValue(0.85);
+const CarouselItem: React.FC<CarouselItemProps> = ({ game, isSelected, onPress, onLongPress, cardWidth = CARD_WIDTH, isLandscape = false }) => {
+  const selectedScale = isLandscape ? 1.02 : 1.05;
+  const unselectedScale = isLandscape ? 0.9 : 0.85;
+  const scale = useSharedValue(unselectedScale);
   const borderOpacity = useSharedValue(0);
 
   useEffect(() => {
-    scale.value = withSpring(isSelected ? 1.05 : 0.85, { damping: 18, stiffness: 160 });
+    scale.value = withSpring(isSelected ? selectedScale : unselectedScale, { damping: 18, stiffness: 160 });
     borderOpacity.value = withSpring(isSelected ? 1 : 0, { damping: 18, stiffness: 160 });
   }, [isSelected]);
 
@@ -579,7 +589,7 @@ const CarouselItem: React.FC<CarouselItemProps> = ({ game, isSelected, onPress, 
 
   return (
     <TouchableOpacity onPress={onPress} onLongPress={onLongPress} activeOpacity={0.9}>
-      <Animated.View style={[{ width: CARD_WIDTH, marginHorizontal: CARD_MARGIN }, animatedStyle]}>
+      <Animated.View style={[{ width: cardWidth, marginHorizontal: CARD_MARGIN }, animatedStyle]}>
         <Animated.View
           style={[{ aspectRatio: 1, borderWidth: 2 }, borderStyle]}
           className="rounded-2xl overflow-hidden bg-white/5"

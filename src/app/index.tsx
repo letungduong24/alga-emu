@@ -13,7 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 // Card cho mỗi hệ máy trong carousel
-const EmulatorItem = ({ emulator, isSelected, onFocus, onAction }: any) => {
+const EmulatorItem = ({ emulator, isSelected, onFocus, onAction, cardSize }: any) => {
   const { isCoreReady, isDownloading, progress, downloadCore } = useCore(emulator.coreName, emulator.coreUrl);
 
   const handlePress = () => {
@@ -32,6 +32,7 @@ const EmulatorItem = ({ emulator, isSelected, onFocus, onAction }: any) => {
       isDownloading={isDownloading}
       progress={progress}
       onPress={handlePress}
+      size={cardSize}
     />
   );
 };
@@ -72,7 +73,9 @@ export default function HomeScreen() {
   };
 
   const isLandscape = width > height;
-  const carouselPadding = useMemo(() => (width - 180) / 2, [width]);
+  const cardSize = isLandscape ? 140 : 180;
+  const snapInterval = cardSize + 24; // card + margin
+  const carouselPadding = useMemo(() => (isLandscape ? (width * 0.55 - cardSize) / 2 : (width - cardSize) / 2), [width, isLandscape, cardSize]);
 
   const handleFocus = (index: number) => {
     if (index === selectedIndex) return;
@@ -81,7 +84,7 @@ export default function HomeScreen() {
 
   const onScrollEnd = (e: any) => {
     const x = e.nativeEvent.contentOffset.x;
-    const index = Math.round(x / 204);
+    const index = Math.round(x / snapInterval);
     if (index >= 0 && index < EMULATORS.length) {
       setSelectedIndex(index);
     }
@@ -132,68 +135,72 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* Main Carousel Area */}
-      <View className="flex-1 justify-center py-4">
-        <FlatList
-          ref={flatListRef}
-          data={EMULATORS}
-          keyExtractor={(item) => item.id}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ 
-            paddingHorizontal: carouselPadding,
-            alignItems: 'center' 
-          }}
-          snapToInterval={204}
-          decelerationRate="fast"
-          onMomentumScrollEnd={onScrollEnd}
-          onScrollToIndexFailed={() => {}}
-          renderItem={({ item, index }) => (
-            <EmulatorItem
-              emulator={item}
-              isSelected={index === selectedIndex}
-              onFocus={() => {
-                flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
-                setSelectedIndex(index);
-              }}
-              onAction={goToLibrary}
-            />
-          )}
-        />
-      </View>
+      {/* Main Content — side-by-side in landscape */}
+      <View className={`flex-1 ${isLandscape ? 'flex-row' : ''}`}>
+        {/* Carousel Area */}
+        <View className={`justify-center ${isLandscape ? 'flex-1' : 'flex-1 py-4'}`}>
+          <FlatList
+            ref={flatListRef}
+            data={EMULATORS}
+            keyExtractor={(item) => item.id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ 
+              paddingHorizontal: carouselPadding,
+              alignItems: 'center' 
+            }}
+            snapToInterval={snapInterval}
+            decelerationRate="fast"
+            onMomentumScrollEnd={onScrollEnd}
+            onScrollToIndexFailed={() => {}}
+            renderItem={({ item, index }) => (
+              <EmulatorItem
+                emulator={item}
+                isSelected={index === selectedIndex}
+                onFocus={() => {
+                  flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
+                  setSelectedIndex(index);
+                }}
+                onAction={goToLibrary}
+                cardSize={cardSize}
+              />
+            )}
+          />
+        </View>
 
-      {/* Focused Item Info Area */}
-      <View 
-        style={{ paddingBottom: insets.bottom + 16 }}
-        className={`px-8 ${isLandscape ? 'absolute bottom-0 left-0 right-0' : ''}`}
-      >
-        <Animated.View 
-          key={`info-${selectedEmulator.id}`}
-          entering={FadeInDown.duration(500)}
+        {/* Info Area */}
+        <View 
+          style={{ paddingBottom: insets.bottom + 16 }}
+          className={`px-8 ${isLandscape ? 'flex-1 justify-center' : ''}`}
         >
-          <Text 
-            className={`text-white font-bold tracking-tighter mb-2 ${isLandscape ? 'text-5xl' : 'text-3xl'}`}
+          <Animated.View 
+            key={`info-${selectedEmulator.id}`}
+            entering={FadeInDown.duration(500)}
           >
-            {selectedEmulator.title}
-          </Text>
-          
-          <Text className="text-white/60 text-sm mb-6 max-w-md">
-            {selectedEmulator.description}
-          </Text>
+            <Text 
+              className={`text-white font-bold tracking-tighter mb-2 ${isLandscape ? 'text-3xl' : 'text-3xl'}`}
+            >
+              {selectedEmulator.title}
+            </Text>
+            
+            <Text className="text-white/60 text-sm mb-6 max-w-md">
+              {selectedEmulator.description}
+            </Text>
 
-          {/* Main Action Button */}
-          <View className="flex-row items-center gap-x-4">
-             <TouchableOpacity 
-                onPress={buttonState.onPress}
-                disabled={buttonState.disabled}
-                className={`px-10 py-4 rounded-full shadow-xl min-w-[160px] items-center ${buttonState.style}`}
-             >
-                <Text className="text-black font-extrabold text-lg">
-                  {buttonState.label}
-                </Text>
-             </TouchableOpacity>
-          </View>
-        </Animated.View>
+            {/* Main Action Button */}
+            <View className="flex-row items-center gap-x-4">
+               <TouchableOpacity 
+                  onPress={buttonState.onPress}
+                  disabled={buttonState.disabled}
+                  className={`px-10 py-4 rounded-full shadow-xl min-w-[160px] items-center ${buttonState.style}`}
+               >
+                  <Text className="text-black font-extrabold text-lg">
+                    {buttonState.label}
+                  </Text>
+               </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </View>
       </View>
 
       {/* Storage Permission Alert */}
