@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, Pressable } from 'react-native';
 import Animated, { FadeIn, ZoomIn } from 'react-native-reanimated';
 
 interface CustomAlertProps {
@@ -30,11 +30,15 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
   const showCancel = !!cancelText && !!onCancel;
 
   return (
-    <Modal transparent visible={visible} animationType="none" statusBarTranslucent>
-      <Animated.View
-        entering={FadeIn.duration(200)}
-        className="flex-1 bg-black/70 items-center justify-center px-8"
-      >
+    <Modal transparent visible={visible} animationType="none" statusBarTranslucent onRequestClose={onCancel}>
+      <View className="flex-1 items-center justify-center px-8">
+        <Animated.View
+          entering={FadeIn.duration(200)}
+          className="absolute top-0 bottom-0 left-0 right-0 bg-black/70"
+        >
+          <Pressable style={{ flex: 1 }} onPress={onCancel} />
+        </Animated.View>
+
         <Animated.View
           entering={ZoomIn.duration(250)}
           style={{ backgroundColor: 'rgba(28,28,35,0.97)' }}
@@ -73,7 +77,7 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
             </TouchableOpacity>
           </View>
         </Animated.View>
-      </Animated.View>
+      </View>
     </Modal>
   );
 };

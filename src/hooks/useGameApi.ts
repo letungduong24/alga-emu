@@ -1,6 +1,6 @@
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import axios from 'axios';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 const api = axios.create({
   baseURL: 'https://alga-api.duongle.dev',
@@ -33,6 +33,19 @@ const fetchGames = async (
     params: { platform, q, page, limit },
   });
   return data;
+};
+
+/**
+ * Fetch a single game by ID
+ */
+export const fetchGameById = async (gameId: number): Promise<ApiGame | null> => {
+  try {
+    const { data } = await api.get<ApiGame>(`/api/games/${gameId}`);
+    return data;
+  } catch (error) {
+    console.error(`Failed to fetch game ${gameId}:`, error);
+    return null;
+  }
 };
 
 export const useGameApi = (platform: string = 'nds') => {

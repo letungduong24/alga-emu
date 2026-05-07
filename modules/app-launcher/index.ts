@@ -100,3 +100,87 @@ export async function extractNdsIcon(romPath: string, outputPngPath: string): Pr
 export async function extract3dsIcon(romPath: string, outputPngPath: string): Promise<boolean> {
   return AppLauncherModule.extract3dsIcon(romPath, outputPngPath);
 }
+
+// === Backup/Restore System ===
+
+/**
+ * Create a backup ZIP file containing game metadata, save files, and optionally cover images.
+ * 
+ * @param includeCovers - Whether to include cover images in the backup
+ * @param gamesJson - JSON string of the games array from AsyncStorage
+ * @returns Promise resolving to an object with filePath (string) and fileSize (number)
+ * 
+ * @example
+ * const result = await createBackup(true, JSON.stringify(games));
+ * console.log(`Backup created at ${result.filePath}, size: ${result.fileSize} bytes`);
+ */
+export async function createBackup(
+  includeCovers: boolean,
+  gamesJson: string
+): Promise<{ filePath: string; fileSize: number }> {
+  return AppLauncherModule.createBackup(includeCovers, gamesJson);
+}
+
+/**
+ * Restore a backup ZIP file, extracting save files and cover images.
+ * 
+ * @param backupFilePath - Full path to the backup ZIP file
+ * @returns Promise resolving to an object with:
+ *   - manifest: JSON string of the backup manifest
+ *   - savesRestored: number of save files restored
+ *   - coversRestored: number of cover images restored
+ * 
+ * @example
+ * const result = await restoreBackup('/storage/emulated/0/Alga/backups/alga_backup_20240101_120000.zip');
+ * const manifest = JSON.parse(result.manifest);
+ * console.log(`Restored ${result.savesRestored} saves and ${result.coversRestored} covers`);
+ */
+export async function restoreBackup(backupFilePath: string): Promise<{
+  manifest: string;
+  savesRestored: number;
+  coversRestored: number;
+}> {
+  return AppLauncherModule.restoreBackup(backupFilePath);
+}
+
+/**
+ * List all available backup files in the backup storage directory.
+ * 
+ * @returns Promise resolving to an array of backup metadata objects, each containing:
+ *   - filePath: full path to the backup file
+ *   - fileName: backup filename
+ *   - createdAt: ISO 8601 timestamp
+ *   - fileSize: file size in bytes
+ *   - gameCount: number of games in the backup
+ * 
+ * @example
+ * const backups = await listBackups();
+ * backups.forEach(backup => {
+ *   console.log(`${backup.fileName}: ${backup.gameCount} games, ${backup.fileSize} bytes`);
+ * });
+ */
+export async function listBackups(): Promise<Array<{
+  filePath: string;
+  fileName: string;
+  createdAt: string;
+  fileSize: number;
+  gameCount: number;
+}>> {
+  return AppLauncherModule.listBackups();
+}
+
+/**
+ * Delete a specific backup file from storage.
+ * 
+ * @param backupFilePath - Full path to the backup ZIP file to delete
+ * @returns Promise resolving to true if deletion was successful, false otherwise
+ * 
+ * @example
+ * const success = await deleteBackup('/storage/emulated/0/Alga/backups/alga_backup_20240101_120000.zip');
+ * if (success) {
+ *   console.log('Backup deleted successfully');
+ * }
+ */
+export async function deleteBackup(backupFilePath: string): Promise<boolean> {
+  return AppLauncherModule.deleteBackup(backupFilePath);
+}

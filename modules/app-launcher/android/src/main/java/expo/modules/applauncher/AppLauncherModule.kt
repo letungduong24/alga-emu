@@ -17,8 +17,15 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class AppLauncherModule : Module() {
   override fun definition() = ModuleDefinition {
@@ -590,6 +597,389 @@ class AppLauncherModule : Module() {
         }
       } catch (e: Exception) {
         android.util.Log.e("AppLauncher", "Failed to extract 3DS icon: ${e.message}", e)
+        false
+      }
+    }
+
+    // === BACKUP/RESTORE SYSTEM ===
+    
+    // List all backup files in backup directory
+    AsyncFunction("listBackups") {
+      try {
+        val backupDir = File(Environment.getExternalStorageDirectory(), "Alga/backups")
+        
+        // Return empty list if directory doesn't exist
+        if (!backupDir.exists() || !backupDir.isDirectory) {
+          android.util.Log.d("AppLauncher", "Backup directory does not exist")
+          return@AsyncFunction emptyList<Map<String, Any>>()
+        }
+        
+        // Scan directory for ZIP files
+        val backupFiles = backupDir.listFiles { file ->
+          file.isFile && file.name.endsWith(".zip", ignoreCase = true)
+        } ?: emptyArray()
+        
+        // Build list of backup metadata
+        val backupList = mutableListOf<Map<String, Any>>()
+        
+        for (backupFile in backupFiles) {
+          try {
+            // Extract basic file metadata
+            val filePath = backupFile.absolutePath
+            val fileName = backupFile.name
+            val fileSize = backupFile.length()
+            
+            // Get creation date from file system (last modified time)
+            val createdAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+              timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(Date(backupFile.lastModified()))
+            
+            // Try to peek into manifest.json to get game count
+            var gameCount = 0
+            try {
+              val zipIn = java.util.zip.ZipInputStream(FileInputStream(backupFile))
+              var entry = zipIn.nextEntry
+              
+              // Look for manifest.json
+              while (entry != null) {
+                if (entry.name == "manifest.json" && !entry.isDirectory) {
+                  val manifestBytes = zipIn.readBytes()
+                  val manifestJson = String(manifestBytes, Charsets.UTF_8)
+                  val manifest = JSONObject(manifestJson)
+                  
+                  // Extract game count from games array
+                  if (manifest.has("games")) {
+                    val gamesArray = manifest.getJSONArray("games")
+                    gameCount = gamesArray.length()
+                  }
+                  
+                  zipIn.closeEntry()
+                  break
+                }
+                zipIn.closeEntry()
+                entry = zipIn.nextEntry
+              }
+              zipIn.close()
+            } catch (e: Exception) {
+              // If we can't read manifest, just use gameCount = 0
+              android.util.Log.w("AppLauncher", "Could not read manifest from ${fileName}: ${e.message}")
+            }
+            
+            // Add backup info to list
+            backupList.add(mapOf(
+              "filePath" to filePath,
+              "fileName" to fileName,
+              "createdAt" to createdAt,
+              "fileSize" to fileSize,
+              "gameCount" to gameCount
+            ))
+            
+            android.util.Log.d("AppLauncher", "Found backup: $fileName ($fileSize bytes, $gameCount games)")
+          } catch (e: Exception) {
+            // Skip this file if we can't read its metadata
+            android.util.Log.w("AppLauncher", "Skipping backup file ${backupFile.name}: ${e.message}")
+          }
+        }
+        
+        // Sort by creation date (newest first)
+        backupList.sortedByDescending { it["createdAt"] as String }
+      } catch (e: Exception) {
+        android.util.Log.e("AppLauncher", "Failed to list backups: ${e.message}", e)
+        throw Exception("Failed to list backups: ${e.message}")
+      }
+    }
+    
+    // Restore backup from ZIP file
+    AsyncFunction("restoreBackup") { backupFilePath: String ->
+      val context = appContext.reactContext ?: throw Exception("Context is null")
+      
+      try {
+        // Validate ZIP file exists and is readable
+        val backupFile = File(backupFilePath)
+        if (!backupFile.exists()) {
+          throw Exception("Backup file not found: $backupFilePath")
+        }
+        if (!backupFile.canRead()) {
+          throw Exception("Cannot read backup file: $backupFilePath")
+        }
+        
+        // Use ZipInputStream to extract ZIP
+        val zipIn = java.util.zip.ZipInputStream(FileInputStream(backupFile))
+        
+        var manifestJson: String? = null
+        var savesRestored = 0
+        var coversRestored = 0
+        
+        try {
+          var entry = zipIn.nextEntry
+          
+          // First pass: find and parse manifest.json
+          while (entry != null) {
+            if (entry.name == "manifest.json" && !entry.isDirectory) {
+              val manifestBytes = zipIn.readBytes()
+              manifestJson = String(manifestBytes, Charsets.UTF_8)
+              zipIn.closeEntry()
+              break
+            }
+            zipIn.closeEntry()
+            entry = zipIn.nextEntry
+          }
+          
+          // Validate manifest exists
+          if (manifestJson == null) {
+            throw Exception("Invalid backup: manifest.json not found")
+          }
+          
+          // Parse and validate manifest
+          val manifest = JSONObject(manifestJson)
+          
+          // Validate required fields
+          if (!manifest.has("version")) {
+            throw Exception("Invalid backup: manifest missing 'version' field")
+          }
+          if (!manifest.has("createdAt")) {
+            throw Exception("Invalid backup: manifest missing 'createdAt' field")
+          }
+          if (!manifest.has("games")) {
+            throw Exception("Invalid backup: manifest missing 'games' field")
+          }
+          
+          // Close and reopen ZIP to start from beginning for file extraction
+          zipIn.close()
+          val zipIn2 = java.util.zip.ZipInputStream(FileInputStream(backupFile))
+          
+          try {
+            var entry2 = zipIn2.nextEntry
+            
+            // Second pass: extract save files and cover files
+            while (entry2 != null) {
+              val entryName = entry2.name
+              
+              if (!entry2.isDirectory) {
+                // Extract save files to internal storage
+                if (entryName.startsWith("saves/")) {
+                  val relativePath = entryName.substring(6) // Remove "saves/" prefix
+                  val savesDir = File(context.filesDir, "saves")
+                  val destFile = File(savesDir, relativePath)
+                  
+                  // Create parent directories if needed
+                  destFile.parentFile?.mkdirs()
+                  
+                  // Extract file
+                  FileOutputStream(destFile).use { output ->
+                    zipIn2.copyTo(output)
+                  }
+                  savesRestored++
+                  android.util.Log.d("AppLauncher", "Restored save: $relativePath")
+                }
+                // Extract cover files to external storage
+                else if (entryName.startsWith("covers/")) {
+                  val relativePath = entryName.substring(7) // Remove "covers/" prefix
+                  val coversDir = File(Environment.getExternalStorageDirectory(), "Alga/covers")
+                  if (!coversDir.exists()) {
+                    coversDir.mkdirs()
+                  }
+                  val destFile = File(coversDir, relativePath)
+                  
+                  // Create parent directories if needed
+                  destFile.parentFile?.mkdirs()
+                  
+                  // Extract file
+                  FileOutputStream(destFile).use { output ->
+                    zipIn2.copyTo(output)
+                  }
+                  coversRestored++
+                  android.util.Log.d("AppLauncher", "Restored cover: $relativePath")
+                }
+              }
+              
+              zipIn2.closeEntry()
+              entry2 = zipIn2.nextEntry
+            }
+            
+            zipIn2.close()
+            
+            // Return restore result
+            android.util.Log.d("AppLauncher", "Restore complete: $savesRestored saves, $coversRestored covers")
+            
+            mapOf(
+              "manifest" to manifestJson,
+              "savesRestored" to savesRestored,
+              "coversRestored" to coversRestored
+            )
+          } catch (e: Exception) {
+            zipIn2.close()
+            throw e
+          }
+        } catch (e: Exception) {
+          zipIn.close()
+          throw e
+        }
+      } catch (e: Exception) {
+        android.util.Log.e("AppLauncher", "Failed to restore backup: ${e.message}", e)
+        throw Exception("Failed to restore backup: ${e.message}")
+      }
+    }
+    
+    // Create backup ZIP with manifest and save files
+    AsyncFunction("createBackup") { includeCovers: Boolean, gamesJson: String ->
+      val context = appContext.reactContext ?: throw Exception("Context is null")
+      var zipFile: File? = null
+      
+      try {
+        // Parse games JSON to extract game metadata
+        val gamesArray = JSONArray(gamesJson)
+        val games = mutableListOf<JSONObject>()
+        for (i in 0 until gamesArray.length()) {
+          games.add(gamesArray.getJSONObject(i))
+        }
+        
+        // Create backup directory if it doesn't exist
+        val backupDir = File(Environment.getExternalStorageDirectory(), "Alga/backups")
+        if (!backupDir.exists()) {
+          backupDir.mkdirs()
+        }
+        
+        // Generate backup filename with timestamp
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val backupFileName = "alga_backup_${timestamp}.zip"
+        zipFile = File(backupDir, backupFileName)
+        
+        // Create ZIP output stream
+        val zipOut = ZipOutputStream(FileOutputStream(zipFile))
+        
+        try {
+          // Collect save files
+          val savesDir = File(context.filesDir, "saves")
+          val saveFiles = mutableListOf<String>()
+          
+          if (savesDir.exists() && savesDir.isDirectory) {
+            savesDir.walkTopDown().filter { it.isFile }.forEach { file ->
+              val relativePath = file.relativeTo(savesDir).path
+              saveFiles.add(relativePath)
+              
+              // Add save file to ZIP
+              val entry = ZipEntry("saves/$relativePath")
+              zipOut.putNextEntry(entry)
+              FileInputStream(file).use { input ->
+                input.copyTo(zipOut)
+              }
+              zipOut.closeEntry()
+            }
+          }
+          
+          // Collect cover files if requested
+          val coverFiles = mutableListOf<String>()
+          if (includeCovers) {
+            val coversDir = File(Environment.getExternalStorageDirectory(), "Alga/covers")
+            if (coversDir.exists() && coversDir.isDirectory) {
+              coversDir.walkTopDown().filter { it.isFile }.forEach { file ->
+                val relativePath = file.relativeTo(coversDir).path
+                coverFiles.add(relativePath)
+                
+                // Add cover file to ZIP
+                val entry = ZipEntry("covers/$relativePath")
+                zipOut.putNextEntry(entry)
+                FileInputStream(file).use { input ->
+                  input.copyTo(zipOut)
+                }
+                zipOut.closeEntry()
+              }
+            }
+          }
+          
+          // Generate manifest.json
+          val manifest = JSONObject()
+          manifest.put("version", "1.0")
+          manifest.put("createdAt", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+          }.format(Date()))
+          
+          // Add games array to manifest
+          val gamesManifestArray = JSONArray()
+          for (game in games) {
+            val gameMetadata = JSONObject()
+            gameMetadata.put("id", game.getInt("id"))
+            gameMetadata.put("name", game.getString("name"))
+            gameMetadata.put("platform", game.getString("platform"))
+            gameMetadata.put("downloadUrl", game.getString("downloadUrl"))
+            gameMetadata.put("filename", game.getString("filename"))
+            gamesManifestArray.put(gameMetadata)
+          }
+          manifest.put("games", gamesManifestArray)
+          
+          // Add saveFiles array to manifest
+          val saveFilesArray = JSONArray()
+          for (saveFile in saveFiles) {
+            saveFilesArray.put(saveFile)
+          }
+          manifest.put("saveFiles", saveFilesArray)
+          
+          // Add coverFiles array to manifest if covers were included
+          if (includeCovers) {
+            val coverFilesArray = JSONArray()
+            for (coverFile in coverFiles) {
+              coverFilesArray.put(coverFile)
+            }
+            manifest.put("coverFiles", coverFilesArray)
+          }
+          
+          // Add manifest.json to ZIP as first entry
+          val manifestEntry = ZipEntry("manifest.json")
+          zipOut.putNextEntry(manifestEntry)
+          zipOut.write(manifest.toString(2).toByteArray(Charsets.UTF_8))
+          zipOut.closeEntry()
+          
+          zipOut.close()
+          
+          // Return file path and size
+          val fileSize = zipFile.length()
+          android.util.Log.d("AppLauncher", "Created backup: ${zipFile.absolutePath} (${fileSize} bytes)")
+          
+          mapOf(
+            "filePath" to zipFile.absolutePath,
+            "fileSize" to fileSize
+          )
+        } catch (e: Exception) {
+          zipOut.close()
+          throw e
+        }
+      } catch (e: Exception) {
+        // Delete partial ZIP file on error
+        zipFile?.let {
+          if (it.exists()) {
+            it.delete()
+            android.util.Log.d("AppLauncher", "Deleted partial backup file after error")
+          }
+        }
+        android.util.Log.e("AppLauncher", "Failed to create backup: ${e.message}", e)
+        throw Exception("Failed to create backup: ${e.message}")
+      }
+    }
+    
+    // Delete backup file from filesystem
+    AsyncFunction("deleteBackup") { backupFilePath: String ->
+      try {
+        val backupFile = File(backupFilePath)
+        
+        // Check if file exists
+        if (!backupFile.exists()) {
+          android.util.Log.w("AppLauncher", "Backup file not found: $backupFilePath")
+          return@AsyncFunction false
+        }
+        
+        // Attempt to delete the file
+        val deleted = backupFile.delete()
+        
+        if (deleted) {
+          android.util.Log.d("AppLauncher", "Successfully deleted backup: $backupFilePath")
+        } else {
+          android.util.Log.w("AppLauncher", "Failed to delete backup: $backupFilePath")
+        }
+        
+        deleted
+      } catch (e: Exception) {
+        android.util.Log.e("AppLauncher", "Error deleting backup: ${e.message}", e)
         false
       }
     }

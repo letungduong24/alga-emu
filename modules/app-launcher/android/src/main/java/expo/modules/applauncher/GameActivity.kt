@@ -253,6 +253,9 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener {
                         currentLayoutIndex = savedLayout
                         applyScreenLayout(savedLayout)
                     }
+
+                    // Load SRAM from file if exists (for GBA and other cores)
+                    loadSRAMFromFile()
                 }
             }
             .catch { e -> android.util.Log.e("GameActivity", "Events flow exception", e) }
@@ -300,6 +303,12 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener {
         inputManager = getSystemService(INPUT_SERVICE) as InputManager
         inputManager?.registerInputDeviceListener(this, null)
         updateGamepadState()
+    }
+
+    override fun onPause() {
+        android.util.Log.d("GameActivity", "onPause — saving SRAM to file")
+        saveSRAMToFile()
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -412,6 +421,55 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener {
         return java.io.File(statesDir, "${romBaseName}.slot${slot}.state").exists()
     }
 
+    // === Manual SRAM Management ===
+    // LibretroDroid may not automatically load/save SRAM files
+    // We need to manually read/write .srm files
+    
+    private fun loadSRAMFromFile() {
+        try {
+            val savesDir = java.io.File(filesDir, "saves")
+            val saveExt = when {
+                isGBA -> ".srm"
+                isMelonDS -> ".sav"
+                else -> ".dsv"
+            }
+            val sramFile = java.io.File(savesDir, "${romBaseName}${saveExt}")
+            
+            if (sramFile.exists() && sramFile.length() > 0) {
+                val sramData = sramFile.readBytes()
+                retroView?.unserializeSRAM(sramData)
+                android.util.Log.d("GameActivity", "Loaded SRAM: ${sramFile.name} (${sramData.size} bytes)")
+            } else {
+                android.util.Log.d("GameActivity", "No existing SRAM file found: ${sramFile.name}")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("GameActivity", "Failed to load SRAM", e)
+        }
+    }
+    
+    private fun saveSRAMToFile() {
+        try {
+            val sramData = retroView?.serializeSRAM()
+            if (sramData != null && sramData.isNotEmpty()) {
+                val savesDir = java.io.File(filesDir, "saves")
+                if (!savesDir.exists()) savesDir.mkdirs()
+                
+                val saveExt = when {
+                    isGBA -> ".srm"
+                    isMelonDS -> ".sav"
+                    else -> ".dsv"
+                }
+                val sramFile = java.io.File(savesDir, "${romBaseName}${saveExt}")
+                sramFile.writeBytes(sramData)
+                android.util.Log.d("GameActivity", "Saved SRAM: ${sramFile.name} (${sramData.size} bytes)")
+            } else {
+                android.util.Log.d("GameActivity", "No SRAM data to save (empty or null)")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("GameActivity", "Failed to save SRAM", e)
+        }
+    }
+
     // === Lifecycle ===
 
     private var finishTriggered = false
@@ -460,14 +518,25 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener {
     }
 
     private fun performSafeExit() {
-        android.util.Log.d("GameActivity", "Exit confirmed — waiting for core to flush save...")
+        android.util.Log.d("GameActivity", "Exit confirmed — saving SRAM to file...")
+        
+        // Explicitly save SRAM to file
+        saveSRAMToFile()
+        
         android.widget.Toast.makeText(this, "Đang thoát...", android.widget.Toast.LENGTH_SHORT).show()
 
         // MelonDS core ghi save bất đồng bộ.
         // Poll chờ file .sav thay đổi (core đã flush) → finish.
         // Timeout 2s vì dialog đã cho core ~1-2s rồi.
         val savesDir = java.io.File(filesDir, "saves")
-        val saveFile = java.io.File(savesDir, "${romBaseName}.sav")
+        
+        // Determine save extension based on core type (use existing flags)
+        val saveExt = when {
+            isGBA -> ".srm"
+            isMelonDS -> ".sav"
+            else -> ".dsv"  // DeSmuME
+        }
+        val saveFile = java.io.File(savesDir, "${romBaseName}${saveExt}")
         val initialModified = if (saveFile.exists()) saveFile.lastModified() else 0L
         val initialSize = if (saveFile.exists()) saveFile.length() else 0L
 

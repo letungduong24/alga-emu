@@ -23,4 +23,10 @@ dependencies {
   implementation "androidx.lifecycle:lifecycle-runtime-ktx:2.8.7"
   implementation "androidx.lifecycle:lifecycle-common-java8:2.8.7"
   implementation "com.github.Swordfish90:LibretroDroid:0.13.2"
+  
+  // Testing dependencies for bug condition exploration
+  androidTestImplementation "androidx.test.ext:junit:1.1.5"
+  androidTestImplementation "androidx.test:runner:1.5.2"
+  androidTestImplementation "androidx.test:rules:1.5.0"
+  androidTestImplementation "androidx.test.uiautomator:uiautomator:2.2.0"
 }

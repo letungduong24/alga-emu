@@ -1,0 +1,116 @@
+# Implementation Plan
+
+- [x] 1. Write bug condition exploration test
+  - **Property 1: Bug Condition** - SRAM Not Flushed on Lifecycle Events
+  - **CRITICAL**: This test MUST FAIL on unfixed code - failure confirms the bug exists
+  - **DO NOT attempt to fix the test or the code when it fails**
+  - **NOTE**: This test encodes the expected behavior - it will validate the fix when it passes after implementation
+  - **GOAL**: Surface counterexamples that demonstrate the bug exists
+  - **Scoped PBT Approach**: Test three concrete failing scenarios: onPause without SRAM flush, exit without SRAM flush, and wrong extension polling
+  - Test Bug 1: Launch GBA game, save in-game, trigger onPause → verify no "onPause — flushing SRAM" in logcat → verify save file timestamp unchanged → verify save data lost after backgrounding
+  - Test Bug 2: Launch GBA game, save in-game, trigger exit → verify no "Exit confirmed — flushing SRAM..." in logcat → verify save file timestamp unchanged → verify save data lost after exit
+  - Test Bug 3: Launch GBA game, save in-game, trigger exit → verify polling checks for `.sav` instead of `.srm` → verify timeout or premature exit
+  - The test assertions should match the Expected Behavior Properties from design:
+    - Property 1: serializeSRAM() called before onPause completes
+    - Property 2: serializeSRAM() called before exit polling begins
+    - Property 3: Core-specific extension used in exit polling (`.srm` for mGBA, `.sav` for melonDS, `.dsv` for DeSmuME)
+  - Run test on UNFIXED code
+  - **EXPECTED OUTCOME**: Test FAILS (this is correct - it proves the bug exists)
+  - Document counterexamples found to understand root cause:
+    - Bug 1: No logcat message for SRAM flush on onPause, save file timestamp unchanged, save data lost
+    - Bug 2: No logcat message for SRAM flush before exit, save file timestamp unchanged, save data lost
+    - Bug 3: Logcat shows polling for `.sav` when mGBA writes `.srm`, timeout occurs
+  - Mark task complete when test is written, run, and failure is documented
+  - _Requirements: 1.1, 1.2, 1.3, 1.4_
+
+- [x] 2. Write preservation property tests (BEFORE implementing fix)
+  - **Property 2: Preservation** - melonDS and Citra Save Behavior Unchanged
+  - **IMPORTANT**: Follow observation-first methodology
+  - Observe behavior on UNFIXED code for non-buggy inputs (melonDS, Citra, other lifecycle events)
+  - Test melonDS preservation: Launch melonDS game, save in-game, exit → observe async save detection works → verify save persists
+  - Test Citra preservation: Launch Citra game, save in-game, exit → observe directory-based saves work → verify save persists
+  - Test onResume preservation: Launch any game, background app, resume → observe game state restoration works
+  - Test exit dialog cancel preservation: Launch any game, press Back, cancel dialog → observe gameplay continues without side effects
+  - Test idempotent serializeSRAM() preservation: Call serializeSRAM() multiple times → observe no data corruption
+  - Write property-based tests capturing observed behavior patterns from Preservation Requirements:
+    - Property 3: melonDS async save behavior unchanged (`.sav` extension, async flush detection)
+    - Property 4: Citra directory-based saves unchanged
+    - Property 4: onResume game state restoration unchanged
+    - Property 4: Exit dialog cancellation unchanged
+    - Property 4: Redundant serializeSRAM() calls safe
+  - Property-based testing generates many test cases for stronger guarantees
+  - Run tests on UNFIXED code
+  - **EXPECTED OUTCOME**: Tests PASS (this confirms baseline behavior to preserve)
+  - Mark task complete when tests are written, run, and passing on unfixed code
+  - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5_
+
+- [x] 3. Fix for GBA save game persistence bugs
+
+  - [x] 3.1 Implement Fix 1 - Add onPause() override
+    - Location: After onDestroy() method (around line 415) in GameActivity.kt
+    - Add new method override that calls retroView?.serializeSRAM() before super.onPause()
+    - Include log message: "onPause — flushing SRAM"
+    - Ensures SRAM is flushed to disk when app goes to background (Home button, app switching)
+    - _Bug_Condition: isBugCondition(input) where input.type == "onPause" AND NOT onPauseOverrideExists()_
+    - _Expected_Behavior: serializeSRAM() called before super.onPause() completes_
+    - _Preservation: melonDS async save behavior, Citra directory-based saves, game state restoration_
+    - _Requirements: 1.1, 2.1, 3.1, 3.2, 3.3_
+
+  - [x] 3.2 Implement Fix 2 - Call serializeSRAM() before exit polling
+    - Location: performSafeExit() method start (line 462-464) in GameActivity.kt
+    - Add retroView?.serializeSRAM() call before polling logic
+    - Include log message: "Exit confirmed — flushing SRAM..."
+    - Ensures SRAM is flushed before polling for save file changes
+    - _Bug_Condition: isBugCondition(input) where input.type == "exit" AND NOT serializeSRAMCalledBeforePolling()_
+    - _Expected_Behavior: serializeSRAM() called before exit polling begins_
+    - _Preservation: melonDS async save behavior, exit dialog cancellation, idempotent serializeSRAM()_
+    - _Requirements: 1.2, 2.2, 3.1, 3.4, 3.5_
+
+  - [x] 3.3 Implement Fix 3 - Use core-specific save extension in polling
+    - Location: performSafeExit() method, save file detection (line 469-470) in GameActivity.kt
+    - Replace hardcoded `.sav` with when expression using isGBA, isMelonDS flags
+    - Extension mapping: isGBA → ".srm", isMelonDS → ".sav", else → ".dsv" (DeSmuME)
+    - Update saveFile variable to use dynamic extension
+    - Ensures polling checks for correct save file extension for each core type
+    - _Bug_Condition: isBugCondition(input) where input.type == "exitPolling" AND saveFileExtension != coreSpecificExtension(currentCore)_
+    - _Expected_Behavior: Core-specific extension used in exit polling (`.srm` for mGBA, `.sav` for melonDS, `.dsv` for DeSmuME)_
+    - _Preservation: melonDS `.sav` extension continues to work_
+    - _Requirements: 1.3, 1.4, 2.3, 2.4, 2.5, 3.1_
+
+  - [x] 3.4 Verify bug condition exploration test now passes
+    - **Property 1: Expected Behavior** - SRAM Flushed on Lifecycle Events
+    - **IMPORTANT**: Re-run the SAME test from task 1 - do NOT write a new test
+    - The test from task 1 encodes the expected behavior
+    - When this test passes, it confirms the expected behavior is satisfied
+    - Run bug condition exploration test from step 1
+    - Verify logcat shows "onPause — flushing SRAM" when app backgrounds
+    - Verify logcat shows "Exit confirmed — flushing SRAM..." when user exits
+    - Verify save file timestamp updates after SRAM flush
+    - Verify save data persists after backgrounding and exit
+    - Verify polling checks for correct extension (`.srm` for mGBA, `.sav` for melonDS, `.dsv` for DeSmuME)
+    - **EXPECTED OUTCOME**: Test PASSES (confirms bug is fixed)
+    - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+
+  - [x] 3.5 Verify preservation tests still pass
+    - **Property 2: Preservation** - melonDS and Citra Save Behavior Unchanged
+    - **IMPORTANT**: Re-run the SAME tests from task 2 - do NOT write new tests
+    - Run preservation property tests from step 2
+    - Verify melonDS async save behavior continues to work (no regression)
+    - Verify Citra directory-based saves continue to work (no regression)
+    - Verify game state restoration after onResume continues to work
+    - Verify exit dialog cancellation continues to work without side effects
+    - Verify redundant serializeSRAM() calls remain safe
+    - **EXPECTED OUTCOME**: Tests PASS (confirms no regressions)
+    - Confirm all tests still pass after fix (no regressions)
+
+- [x] 4. Checkpoint - Ensure all tests pass
+  - Run all bug condition exploration tests → verify they now PASS (bug is fixed)
+  - Run all preservation property tests → verify they still PASS (no regressions)
+  - Verify logcat shows SRAM flush on both onPause() and exit
+  - Verify save files have correct extensions (`.srm` for GBA, `.sav` for melonDS, `.dsv` for DeSmuME)
+  - Verify save file timestamps update after SRAM flush
+  - Test full game flow for GBA: launch → save → Home button → re-open → verify save persists
+  - Test full exit flow for GBA: launch → save → Back button → confirm exit → re-launch → verify save persists
+  - Test melonDS full flow: launch → save → exit → re-launch → verify save persists (no regression)
+  - Test Citra full flow: launch → save → exit → re-launch → verify save persists (no regression)
+  - Ensure all tests pass, ask the user if questions arise

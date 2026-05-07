@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { View, Text, TouchableOpacity, Pressable } from 'react-native';
 import { DownloadCloud, Loader2, CheckCircle2, Gamepad2, X, RotateCcw, Info } from 'lucide-react-native';
 import { ApiGame } from '@/hooks/useGameApi';
 import { Emulator } from '@/constants/emulators';
@@ -77,7 +77,7 @@ export const ApiGameCard = ({ game, emulator, index }: Props) => {
       retryDownload(game.id);
       return;
     }
-    // Show detail alert instead of direct download
+    // Show detail alert
     setShowDetail(true);
   };
 
@@ -95,15 +95,17 @@ export const ApiGameCard = ({ game, emulator, index }: Props) => {
   return (
     <>
       <Animated.View entering={FadeInUp.delay(index * 40).duration(250)}>
-        <TouchableOpacity
-          onPress={handlePress}
-          disabled={!!isActive || downloaded}
-          activeOpacity={0.85}
+        <View
           className={`flex-row items-center ${bgClass} rounded-2xl overflow-hidden border ${borderClass} mb-3`}
           style={{ opacity: downloaded ? 0.6 : 1 }}
         >
-          {/* Game info */}
-          <View className="flex-1 px-3 py-2.5">
+          {/* Game info (Press to show detail) */}
+          <TouchableOpacity
+            onPress={handlePress}
+            disabled={!!isActive || downloaded}
+            activeOpacity={0.85}
+            className="flex-1 px-3 py-2.5"
+          >
             <Text className="text-white text-base font-bold mb-0.5" numberOfLines={1}>
               {game.name}
             </Text>
@@ -149,9 +151,9 @@ export const ApiGameCard = ({ game, emulator, index }: Props) => {
                 <Text className="text-retro-blue text-[11px] font-bold ml-1">Nhấn để xem</Text>
               </View>
             )}
-          </View>
+          </TouchableOpacity>
 
-          {/* Action button */}
+          {/* Action button (Quick download) */}
           <View className="pr-3">
             {isActive ? (
               <TouchableOpacity
@@ -161,9 +163,12 @@ export const ApiGameCard = ({ game, emulator, index }: Props) => {
                 <X size={16} color="#ffffff80" />
               </TouchableOpacity>
             ) : (
-              <View
+              <TouchableOpacity
+                onPress={isError ? () => retryDownload(game.id) : handleDownload}
+                disabled={downloaded}
+                activeOpacity={0.8}
                 className={`w-10 h-10 rounded-full items-center justify-center ${
-                  isError ? 'bg-red-500/20' : downloaded ? 'bg-green-500' : 'bg-retro-blue/20'
+                  isError ? 'bg-red-500/20' : downloaded ? 'bg-green-500' : 'bg-retro-blue'
                 }`}
               >
                 {isError ? (
@@ -171,12 +176,12 @@ export const ApiGameCard = ({ game, emulator, index }: Props) => {
                 ) : downloaded ? (
                   <CheckCircle2 size={18} color="white" />
                 ) : (
-                  <Info size={18} color="#00f2ff" />
+                  <DownloadCloud size={18} color="black" />
                 )}
-              </View>
+              </TouchableOpacity>
             )}
           </View>
-        </TouchableOpacity>
+        </View>
       </Animated.View>
 
       {/* Game Detail Alert */}

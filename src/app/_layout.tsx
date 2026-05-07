@@ -1,11 +1,14 @@
 import '../global.css';
 
+import { FocusIndicator } from '@/components/FocusIndicator';
+import { GamepadInputManager } from '@/components/GamepadInputManager';
+import { GamepadProvider } from '@/contexts/GamepadContext';
+import { DownloadManagerProvider } from '@/hooks/useDownloadManager';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Slot } from 'expo-router';
 import React from 'react';
 import { useColorScheme } from 'react-native';
-import { Slot } from 'expo-router';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { DownloadManagerProvider } from '@/hooks/useDownloadManager';
 
 const queryClient = new QueryClient();
 
@@ -14,9 +17,13 @@ export default function TabLayout() {
   return (
     <QueryClientProvider client={queryClient}>
       <DownloadManagerProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Slot />
-        </ThemeProvider>
+        <GamepadProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <GamepadInputManager />
+            <Slot />
+            <FocusIndicator />
+          </ThemeProvider>
+        </GamepadProvider>
       </DownloadManagerProvider>
     </QueryClientProvider>
   );

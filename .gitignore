@@ -46,3 +46,5 @@ app-example
 # module build artifacts
 **/android/build/
 **/ios/build/
+
+app-release.apk

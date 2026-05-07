@@ -1,16 +1,17 @@
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, Image, StatusBar, ImageBackground, useWindowDimensions, TouchableOpacity, AppState } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { CustomAlert } from '@/components/CustomAlert';
 import { EmulatorCard } from '@/components/EmulatorCard';
+import { FocusableView } from '@/components/FocusableView';
 import { EMULATORS } from '@/constants/emulators';
 import { useCore } from '@/hooks/useEmulator';
-import { checkStoragePermission, requestStoragePermission } from '../../modules/app-launcher';
-import { CustomAlert } from '@/components/CustomAlert';
-import Animated, { 
-  FadeIn, 
-  FadeInDown, 
+import { useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState, FlatList, ImageBackground, StatusBar, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import Animated, {
+    FadeIn,
+    FadeInDown,
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { checkStoragePermission, requestStoragePermission } from '../../modules/app-launcher';
 
 // Card cho mỗi hệ máy trong carousel
 const EmulatorItem = ({ emulator, isSelected, onFocus, onAction, cardSize }: any) => {
@@ -26,14 +27,21 @@ const EmulatorItem = ({ emulator, isSelected, onFocus, onAction, cardSize }: any
   };
 
   return (
-    <EmulatorCard
-      image={emulator.image}
-      isSelected={isSelected}
-      isDownloading={isDownloading}
-      progress={progress}
-      onPress={handlePress}
-      size={cardSize}
-    />
+    <FocusableView
+      id={`emulator-card-${emulator.id}`}
+      onAction={() => onAction(emulator.id)}
+      onFocus={onFocus}
+      priority={isSelected ? 1 : 0}
+    >
+      <EmulatorCard
+        image={emulator.image}
+        isSelected={isSelected}
+        isDownloading={isDownloading}
+        progress={progress}
+        onPress={handlePress}
+        size={cardSize}
+      />
+    </FocusableView>
   );
 };
 
@@ -73,9 +81,16 @@ export default function HomeScreen() {
   };
 
   const isLandscape = width > height;
-  const cardSize = isLandscape ? 140 : 180;
+  const cardSize = isLandscape ? 160 : 180;
   const snapInterval = cardSize + 24; // card + margin
-  const carouselPadding = useMemo(() => (isLandscape ? (width * 0.55 - cardSize) / 2 : (width - cardSize) / 2), [width, isLandscape, cardSize]);
+  // In landscape, carousel is flex-1 (half screen). Show adjacent cards by using smaller padding.
+  const carouselPadding = useMemo(() => {
+    if (isLandscape) {
+      const carouselWidth = width * 0.5;
+      return (carouselWidth - cardSize) / 2;
+    }
+    return (width - cardSize) / 2;
+  }, [width, isLandscape, cardSize]);
 
   const handleFocus = (index: number) => {
     if (index === selectedIndex) return;
@@ -133,6 +148,12 @@ export default function HomeScreen() {
         <View className="flex-row items-center">
           <Text className="text-white text-2xl font-black tracking-tighter">ALGA</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => router.push('/settings')}
+          className="px-3 py-1.5 rounded-full bg-white/10 border border-white/20"
+        >
+          <Text className="text-white text-xs font-semibold">Cài đặt</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Main Content — side-by-side in landscape */}
@@ -189,15 +210,22 @@ export default function HomeScreen() {
 
             {/* Main Action Button */}
             <View className="flex-row items-center gap-x-4">
-               <TouchableOpacity 
-                  onPress={buttonState.onPress}
+               <FocusableView
+                  id="home-action-button"
+                  onAction={buttonState.onPress}
                   disabled={buttonState.disabled}
-                  className={`px-10 py-4 rounded-full shadow-xl min-w-[160px] items-center ${buttonState.style}`}
+                  priority={2}
                >
-                  <Text className="text-black font-extrabold text-lg">
-                    {buttonState.label}
-                  </Text>
-               </TouchableOpacity>
+                  <TouchableOpacity 
+                     onPress={buttonState.onPress}
+                     disabled={buttonState.disabled}
+                     className={`px-10 py-4 rounded-full shadow-xl min-w-[160px] items-center ${buttonState.style}`}
+                  >
+                     <Text className="text-black font-extrabold text-lg">
+                       {buttonState.label}
+                     </Text>
+                  </TouchableOpacity>
+               </FocusableView>
             </View>
           </Animated.View>
         </View>
