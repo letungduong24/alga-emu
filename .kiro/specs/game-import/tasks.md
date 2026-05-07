@@ -110,8 +110,8 @@ The implementation follows a 3-layer architecture:
 - [ ] 5. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [-] 6. Implement cover image extraction
-  - [ ] 6.1 Create extractIconSilently function
+- [x] 6. Implement cover image extraction
+  - [x] 6.1 Create extractIconSilently function
     - Accept romPath, gameId, and platform as parameters
     - Check if platform supports icon extraction (NDS, 3DS)
     - Create covers directory using createDirectory native function
@@ -129,8 +129,8 @@ The implementation follows a 3-layer architecture:
     - Test extractIconSilently handles errors silently without throwing
     - _Requirements: 6.1, 6.2, 6.4_
 
-- [ ] 7. Implement main import workflow orchestration
-  - [ ] 7.1 Create startImport function
+- [-] 7. Implement main import workflow orchestration
+  - [-] 7.1 Create startImport function
     - Accept emulatorId as parameter
     - Update import state to 'validating' operation
     - Open file picker using expo-document-picker with appropriate MIME types

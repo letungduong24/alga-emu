@@ -158,7 +158,7 @@ export default function LandingPage() {
             whileInView={{ opacity: 1 }}
             className="flex justify-center mt-20"
           >
-            <a href="http://duongle.dev/app-release.apk" download>
+            <a href="https://duongle.dev/app-release.apk" download="alga-emulator.apk">
               <button className="bg-white text-black font-black px-12 py-5 rounded-full text-xl hover:scale-105 active:scale-95 transition-all flex items-center gap-3 card-shadow">
                 TẢI ALGA APK
                 <Download className="w-6 h-6" />
@@ -263,8 +263,6 @@ export default function LandingPage() {
                 <a 
                   href="https://duongle.dev/app-release.apk" 
                   download="alga-emulator.apk"
-                  target="_blank"
-                  rel="noopener noreferrer"
                 >
                   <button className="bg-white text-blue-600 font-black px-8 md:px-12 py-4 md:py-5 rounded-full text-lg md:text-xl hover:scale-105 active:scale-95 transition-all shadow-xl">
                     TẢI APK NGAY

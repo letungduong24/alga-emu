@@ -1,4 +1,6 @@
 import { useCallback, useState } from 'react';
+import { unzip } from 'react-native-zip-archive';
+import { copyFile, createDirectory, extract3dsIcon, extractNdsIcon, fileExists, listFiles } from '../../modules/app-launcher';
 import { useDownloadManager } from './useDownloadManager';
 import { ApiGame } from './useGameApi';
 
