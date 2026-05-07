@@ -53,10 +53,12 @@ export default function LandingPage() {
                 Alga là trung tâm giả lập tất cả-trong-một cho Android. Trải nghiệm các tựa game GBA, NDS, và 3DS kinh điển với hiệu năng tối đa và giao diện tuyệt đẹp.
               </p>
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white px-10 h-12 rounded-full text-base font-semibold group shadow-lg shadow-blue-600/20">
-                  Tải Alga APK
-                  <Download className="ml-2 w-5 h-5 group-hover:translate-y-0.5 transition-transform" />
-                </Button>
+                <a href="http://duongle.dev/app-release.apk" download>
+                  <Button size="lg" className="bg-blue-600 hover:bg-blue-700 text-white px-10 h-12 rounded-full text-base font-semibold group shadow-lg shadow-blue-600/20">
+                    Tải Alga APK
+                    <Download className="ml-2 w-5 h-5 group-hover:translate-y-0.5 transition-transform" />
+                  </Button>
+                </a>
               </div>
             </motion.div>
           </div>
@@ -158,9 +160,11 @@ export default function LandingPage() {
                   Nâng tầm trải nghiệm retro của bạn ngay hôm nay. Tải bản APK mới nhất và bắt đầu hành trình.
                 </p>
                 <div className="flex justify-center">
-                  <Button size="lg" variant="secondary" className="bg-white text-blue-600 hover:bg-slate-100 px-12 h-14 rounded-full font-bold text-lg">
-                    Tải APK ngay
-                  </Button>
+                  <a href="http://duongle.dev/app-release.apk" download>
+                    <Button size="lg" variant="secondary" className="bg-white text-blue-600 hover:bg-slate-100 px-12 h-14 rounded-full font-bold text-lg">
+                      Tải APK ngay
+                    </Button>
+                  </a>
                 </div>
               </div>
             </div>
