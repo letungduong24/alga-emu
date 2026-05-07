@@ -131,8 +131,8 @@ export default function SettingsScreen() {
         Alert.alert('Lỗi', error.message || 'Không thể restore backup');
       });
       
-      // Navigate to library immediately to show download progress
-      router.push('/library');
+      // Navigate to home immediately to show download progress
+      router.push('/');
     } catch (error: any) {
       Alert.alert('Lỗi', error.message || 'Không thể restore backup');
     } finally {

@@ -1,7 +1,6 @@
-import { Router, Request, Response } from "express";
+import { Request, Response, Router } from "express";
 import { AppDataSource } from "../data-source";
 import { Game } from "../entity/Game";
-import { ILike } from "typeorm";
 
 const router = Router();
 const repo = () => AppDataSource.getRepository(Game);
@@ -15,16 +14,24 @@ router.get("/", async (req: Request, res: Response) => {
     const platform = (req.query.platform as string) || "nds";
 
     const where: any = { platform };
+    
+    // Build query with search on both name and filename
+    let queryBuilder = repo().createQueryBuilder("game")
+      .where("game.platform = :platform", { platform });
+    
     if (q.trim()) {
-      where.name = ILike(`%${q.trim()}%`);
+      // Search in both name and filename fields
+      queryBuilder = queryBuilder.andWhere(
+        "(game.name ILIKE :search OR game.filename ILIKE :search)",
+        { search: `%${q.trim()}%` }
+      );
     }
 
-    const [games, total] = await repo().findAndCount({
-      where,
-      order: { name: "ASC" },
-      skip: (page - 1) * limit,
-      take: limit,
-    });
+    const [games, total] = await queryBuilder
+      .orderBy("game.name", "ASC")
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
 
     res.json({
       games,

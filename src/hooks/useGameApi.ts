@@ -43,7 +43,60 @@ export const fetchGameById = async (gameId: number): Promise<ApiGame | null> => 
     const { data } = await api.get<ApiGame>(`/api/games/${gameId}`);
     return data;
   } catch (error) {
+    // Don't log error for negative IDs (local/imported games)
+    if (gameId < 0) {
+      return null;
+    }
     console.error(`Failed to fetch game ${gameId}:`, error);
+    return null;
+  }
+};
+
+/**
+ * Search for a game by filename and platform
+ * Used during backup restore when game ID might be different
+ */
+export const fetchGameByFilename = async (filename: string, platform: string): Promise<ApiGame | null> => {
+  try {
+    // Remove .zip extension for comparison
+    const filenameWithoutZip = filename.replace(/\.zip$/i, '');
+    
+    // Search with filename (without .zip)
+    const { data } = await api.get<GamesResponse>('/api/games', {
+      params: { 
+        platform, 
+        q: filenameWithoutZip,
+        page: 1, 
+        limit: 100 // Increase limit to get more results
+      },
+    });
+    
+    console.log(`Searching for game: filename="${filename}", platform="${platform}", found ${data.games.length} results`);
+    
+    // Find exact match by filename (case-insensitive)
+    const exactMatch = data.games.find(g => 
+      g.filename.toLowerCase() === filename.toLowerCase()
+    );
+    
+    if (exactMatch) {
+      console.log(`Found exact match: ${exactMatch.name} (ID: ${exactMatch.id})`);
+      return exactMatch;
+    }
+    
+    // If no exact match, try to find by filename without extension
+    const similarMatch = data.games.find(g => 
+      g.filename.replace(/\.zip$/i, '').toLowerCase() === filenameWithoutZip.toLowerCase()
+    );
+    
+    if (similarMatch) {
+      console.log(`Found similar match: ${similarMatch.name} (ID: ${similarMatch.id})`);
+      return similarMatch;
+    }
+    
+    console.warn(`No match found for filename: ${filename}`);
+    return null;
+  } catch (error) {
+    console.error(`Failed to fetch game by filename ${filename}:`, error);
     return null;
   }
 };

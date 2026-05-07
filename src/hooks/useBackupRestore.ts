@@ -286,12 +286,31 @@ export const useBackupRestore = () => {
         );
 
         try {
-          // Fetch game details from API to get fresh downloadUrl
-          const { fetchGameById } = await import('@/hooks/useGameApi');
-          const apiGame = await fetchGameById(gameMetadata.id);
+          // Try to fetch game by ID first (for games downloaded from API with positive IDs)
+          let apiGame: ApiGame | null = null;
+          
+          if (gameMetadata.id > 0) {
+            // Positive ID - try fetching by ID
+            const { fetchGameById } = await import('@/hooks/useGameApi');
+            apiGame = await fetchGameById(gameMetadata.id);
+          }
+          
+          // If not found by ID (negative ID or API changed), try searching by filename
+          if (!apiGame) {
+            const { fetchGameByFilename } = await import('@/hooks/useGameApi');
+            apiGame = await fetchGameByFilename(gameMetadata.filename, gameMetadata.platform);
+          }
           
           if (!apiGame) {
-            throw new Error('Game not found in API');
+            // Game not found in API - skip it (might be deleted or imported game)
+            console.warn(`Game ${gameMetadata.name} not found in API, skipping download`);
+            gamesFailed++;
+            errors.push({
+              gameId: gameMetadata.id,
+              gameName: gameMetadata.name,
+              error: 'Game không còn tồn tại trong API (có thể đã bị xóa)',
+            });
+            continue;
           }
           
           // Validate downloadUrl

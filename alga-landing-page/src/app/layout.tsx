@@ -5,9 +5,14 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Alga | The Ultimate Retro Emulator Launcher",
-  description: "Experience your favorite GBA, NDS, and 3DS games on Android with precision, speed, and a beautiful interface.",
-  keywords: ["emulator", "android", "GBA", "NDS", "3DS", "retro gaming", "RetroArch", "Alga"],
+  title: "Alga Emulator | Trình giả lập Game Retro đỉnh cao trên Android",
+  description: "Trải nghiệm mượt mà các dòng game GBA, NDS, 3DS và nhiều hệ máy khác ngay trên điện thoại Android của bạn với giao diện hiện đại và tốc độ tối ưu.",
+  keywords: ["giả lập", "android emulator", "GBA", "NDS", "3DS", "retro gaming", "Alga Emulator", "chơi game retro"],
+  openGraph: {
+    title: "Alga Emulator | Trình giả lập Game Retro đỉnh cao trên Android",
+    description: "Trải nghiệm mượt mà các dòng game cổ điển với tốc độ tối ưu và giao diện tuyệt đẹp.",
+    images: [{ url: "/shop.avif" }],
+  }
 };
 
 export default function RootLayout({

@@ -3,26 +3,28 @@ import { EMULATORS } from '@/constants/emulators';
 import { useDownloadManager } from '@/hooks/useDownloadManager';
 import { useCore } from '@/hooks/useEmulator';
 import { ApiGame } from '@/hooks/useGameApi';
+import { useGameImport } from '@/hooks/useGameImport';
 import * as DocumentPicker from 'expo-document-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Download, Grid3x3, List, MoreVertical, Play, Plus, Search, Trash2, Upload, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-    FlatList, Image,
-    ImageBackground,
-    Modal,
-    StatusBar,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    useWindowDimensions,
-    View,
+  ActivityIndicator,
+  FlatList, Image,
+  ImageBackground,
+  Modal,
+  StatusBar,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  useWindowDimensions,
+  View
 } from 'react-native';
 import Animated, {
-    FadeInDown,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { exportSave, fileExists, hasSave, importSave, launchGame } from '../../modules/app-launcher';
@@ -31,6 +33,15 @@ const CARD_WIDTH = 200;
 const CARD_MARGIN = 12;
 const SNAP_INTERVAL = CARD_WIDTH + CARD_MARGIN * 2;
 const PRIMARY = '#00f2ff';
+
+const OPERATION_MESSAGES: Record<string, string> = {
+  idle: '',
+  validating: 'Đang kiểm tra file...',
+  copying: 'Đang sao chép ROM...',
+  extracting: 'Đang giải nén...',
+  processing: 'Đang xử lý metadata...',
+  done: 'Hoàn tất!',
+};
 
 type ViewMode = 'carousel' | 'grid';
 
@@ -45,14 +56,17 @@ export default function LibraryScreen() {
   const SNAP = CARD_W + CARD_MARGIN * 2;
 
   const emulator = EMULATORS.find((e) => e.id === emulatorId);
+  const downloadManager = useDownloadManager();
   const {
     downloadedGames, scanLocalLibrary,
     getRomPath, deleteGame,
-    downloads: downloadManager,
-  } = useDownloadManager();
+    downloads,
+  } = downloadManager;
   const { isCoreReady, isDownloading: coreLoading, progress: coreProgress, downloadCore, corePath } = useCore(
     emulator?.coreName ?? '', emulator?.coreUrl ?? ''
   );
+  
+  const { importState, startImport } = useGameImport();
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [searchText, setSearchText] = useState('');
@@ -61,6 +75,7 @@ export default function LibraryScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>('carousel');
   const [actionTarget, setActionTarget] = useState<ApiGame | null>(null);
   const [exportAlert, setExportAlert] = useState<{ title: string; message: string } | null>(null);
+  const [importAlert, setImportAlert] = useState<{ title: string; message: string } | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const emulatorGames = useMemo(() => {
@@ -82,8 +97,8 @@ export default function LibraryScreen() {
     
     // Sort: downloading games first, keep original order for the rest
     return games.sort((a, b) => {
-      const aDownloading = downloadManager.downloads.has(a.id);
-      const bDownloading = downloadManager.downloads.has(b.id);
+      const aDownloading = downloads.has(a.id);
+      const bDownloading = downloads.has(b.id);
       
       // Downloading games first
       if (aDownloading && !bDownloading) return -1;
@@ -92,7 +107,7 @@ export default function LibraryScreen() {
       // Keep original order
       return 0;
     });
-  }, [emulatorGames, searchText, downloadManager.downloads]);
+  }, [emulatorGames, searchText, downloads]);
 
   useEffect(() => {
     if (emulator) {
@@ -152,11 +167,50 @@ export default function LibraryScreen() {
   // Delete game
   const handleDeleteConfirm = useCallback(async () => {
     if (!deleteTarget || !emulator) return;
+    
+    // Find index of game being deleted
+    const deleteIndex = filteredGames.findIndex(g => g.id === deleteTarget.id);
+    
+    // Delete the game
     await deleteGame(deleteTarget.id, emulator.id);
     setDeleteTarget(null);
-    if (selectedIndex >= filteredGames.length - 1 && selectedIndex > 0) {
-      setSelectedIndex(selectedIndex - 1);
+    
+    // Calculate new selected index BEFORE state updates
+    const newLength = filteredGames.length - 1; // After deletion
+    let newSelectedIndex = selectedIndex;
+    
+    if (deleteIndex === selectedIndex) {
+      // Deleted the currently selected game
+      if (selectedIndex > 0) {
+        // Move to previous game
+        newSelectedIndex = selectedIndex - 1;
+      } else {
+        // Was at first game, stay at 0 if there are more games
+        newSelectedIndex = 0;
+      }
+    } else if (deleteIndex < selectedIndex) {
+      // Deleted a game before the selected one, shift index down
+      newSelectedIndex = selectedIndex - 1;
     }
+    
+    // Ensure index is within bounds
+    if (newSelectedIndex >= newLength) {
+      newSelectedIndex = Math.max(0, newLength - 1);
+    }
+    
+    // Update selected index
+    setSelectedIndex(newSelectedIndex);
+    
+    // Scroll to new position after state update
+    setTimeout(() => {
+      if (newLength > 0 && flatListRef.current) {
+        flatListRef.current.scrollToIndex({ 
+          index: newSelectedIndex, 
+          animated: true, 
+          viewPosition: 0.5 
+        });
+      }
+    }, 100);
   }, [deleteTarget, emulator, deleteGame, selectedIndex, filteredGames]);
 
   // Export save
@@ -213,6 +267,30 @@ export default function LibraryScreen() {
     setImportPending(null);
   }, [importPending, emulatorId]);
 
+  // Handle game import
+  const handleGameImport = useCallback(async () => {
+    if (!emulator) return;
+    
+    const result = await startImport(emulator.id);
+    
+    if (result.success && result.game) {
+      // Show success message
+      setImportAlert({ 
+        title: 'Import thành công', 
+        message: `Đã import game "${result.game.name}" vào thư viện!` 
+      });
+      
+      // Refresh library
+      scanLocalLibrary(emulator.id, emulator.romExtension);
+    } else if (result.error) {
+      // Show error message
+      setImportAlert({ 
+        title: 'Lỗi import', 
+        message: result.error 
+      });
+    }
+  }, [emulator, startImport, scanLocalLibrary]);
+
   const onScrollEnd = (e: any) => {
     const x = e.nativeEvent.contentOffset.x;
     const index = Math.round(x / SNAP);
@@ -244,14 +322,23 @@ export default function LibraryScreen() {
             <Text style={{ fontSize: 64 }} className="mb-4">🎮</Text>
             <Text className="text-white text-2xl font-bold text-center mb-2">Thư viện trống</Text>
             <Text className="text-white/50 text-center mb-8">Tải game đầu tiên để bắt đầu chơi!</Text>
-            <TouchableOpacity
-              onPress={() => router.push({ pathname: '/games', params: { emulatorId: emulator.id } })}
-              className="px-10 py-4 rounded-full flex-row items-center"
-              style={{ backgroundColor: PRIMARY }}
-            >
-              <Plus size={20} color="black" />
-              <Text className="text-black font-extrabold text-lg ml-2">Tải game</Text>
-            </TouchableOpacity>
+            <View className="flex-row gap-x-3">
+              <TouchableOpacity
+                onPress={handleGameImport}
+                className="px-10 py-4 rounded-full flex-row items-center bg-white/10 border border-white/20"
+              >
+                <Upload size={20} color="white" />
+                <Text className="text-white font-extrabold text-lg ml-2">Import</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => router.push({ pathname: '/games', params: { emulatorId: emulator.id } })}
+                className="px-10 py-4 rounded-full flex-row items-center"
+                style={{ backgroundColor: PRIMARY }}
+              >
+                <Plus size={20} color="black" />
+                <Text className="text-black font-extrabold text-lg ml-2">Tải game</Text>
+              </TouchableOpacity>
+            </View>
           </Animated.View>
         </ImageBackground>
       </View>
@@ -262,13 +349,13 @@ export default function LibraryScreen() {
   const renderHeader = () => (
     <>
       <View style={{ paddingTop: insets.top }} className="flex-row items-center justify-between px-5 py-3 z-10">
-        <View className="flex-row items-center">
+        <View className="flex-row items-center flex-shrink">
           <TouchableOpacity onPress={() => router.back()} className="mr-3 p-2">
             <ArrowLeft size={22} color="white" />
           </TouchableOpacity>
-          <Text className="text-white text-xl font-bold">{emulator.title}</Text>
+          <Text className="text-white text-xl font-bold" numberOfLines={1}>{emulator.title}</Text>
         </View>
-        <View className="flex-row items-center gap-x-2">
+        <View className="flex-row items-center gap-x-2 flex-shrink-0">
           <TouchableOpacity onPress={() => setShowSearch(!showSearch)} className="p-2">
             {showSearch ? <X size={20} color="white" /> : <Search size={20} color="white" />}
           </TouchableOpacity>
@@ -279,12 +366,17 @@ export default function LibraryScreen() {
             {viewMode === 'carousel' ? <Grid3x3 size={20} color="white" /> : <List size={20} color="white" />}
           </TouchableOpacity>
           <TouchableOpacity
+            onPress={handleGameImport}
+            className="w-10 h-10 rounded-full bg-white/10 items-center justify-center"
+          >
+            <Upload size={20} color={PRIMARY} />
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={() => router.push({ pathname: '/games', params: { emulatorId: emulator.id } })}
-            className="px-4 py-2 rounded-full flex-row items-center"
+            className="px-3 py-2 rounded-full flex-row items-center"
             style={{ backgroundColor: PRIMARY }}
           >
             <Plus size={16} color="black" />
-            <Text className="text-black font-bold text-xs ml-1">Tải thêm</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -543,6 +635,26 @@ export default function LibraryScreen() {
         onConfirm={handleImportConfirm}
         onCancel={() => setImportPending(null)}
       />
+      
+      {/* Import Success/Error Alert */}
+      <CustomAlert
+        visible={!!importAlert}
+        title={importAlert?.title ?? ''}
+        message={importAlert?.message ?? ''}
+        confirmText="OK"
+        confirmColor={PRIMARY}
+        onConfirm={() => setImportAlert(null)}
+      />
+      
+      {/* Import Progress Overlay */}
+      {importState.isImporting && (
+        <View className="absolute inset-0 bg-black/80 items-center justify-center z-50">
+          <ActivityIndicator size="large" color={PRIMARY} />
+          <Text className="text-white mt-4 text-lg">
+            {OPERATION_MESSAGES[importState.currentOperation] || 'Đang import...'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

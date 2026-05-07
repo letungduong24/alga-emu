@@ -199,13 +199,9 @@ export default function HomeScreen() {
             entering={FadeInDown.duration(500)}
           >
             <Text 
-              className={`text-white font-bold tracking-tighter mb-2 ${isLandscape ? 'text-3xl' : 'text-3xl'}`}
+              className={`text-white font-bold tracking-tighter mb-6 ${isLandscape ? 'text-3xl' : 'text-3xl'}`}
             >
               {selectedEmulator.title}
-            </Text>
-            
-            <Text className="text-white/60 text-sm mb-6 max-w-md">
-              {selectedEmulator.description}
             </Text>
 
             {/* Main Action Button */}

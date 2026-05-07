@@ -1,6 +1,6 @@
+import * as DocumentPicker from 'expo-document-picker';
 import { useCallback, useState } from 'react';
-import { unzip } from 'react-native-zip-archive';
-import { copyFile, createDirectory, extract3dsIcon, extractNdsIcon, fileExists, listFiles } from '../../modules/app-launcher';
+import { copyFile, createDirectory, deleteFileOrDir, extract3dsIcon, extractNdsIcon, fileExists } from '../../modules/app-launcher';
 import { useDownloadManager } from './useDownloadManager';
 import { ApiGame } from './useGameApi';
 
@@ -71,13 +71,8 @@ interface ValidationResult {
   error?: string;
 }
 
-function validateFile(filename: string): ValidationResult {
+function validateFile(filename: string, expectedPlatform?: 'gba' | 'nds' | '3ds'): ValidationResult {
   const lowerFilename = filename.toLowerCase();
-  
-  // Check if it's a ZIP file
-  if (lowerFilename.endsWith('.zip')) {
-    return { valid: true }; // ZIP files need further validation after extraction
-  }
   
   // Check against platform configurations
   for (const [platformKey, config] of Object.entries(PLATFORM_CONFIG)) {
@@ -92,10 +87,28 @@ function validateFile(filename: string): ValidationResult {
     }
   }
   
-  // No valid extension found
+  // No valid extension found - generate specific error message
+  let errorMessage = 'Định dạng file không được hỗ trợ.';
+  
+  if (expectedPlatform) {
+    const platformExtensions: Record<string, string> = {
+      'gba': '.gba',
+      'nds': '.nds',
+      '3ds': '.3ds, .cci, .cxi, .3dsx'
+    };
+    const platformNames: Record<string, string> = {
+      'gba': 'Game Boy Advance',
+      'nds': 'Nintendo DS',
+      '3ds': 'Nintendo 3DS'
+    };
+    errorMessage = `Định dạng file không hợp lệ cho ${platformNames[expectedPlatform]}. Vui lòng chọn file ${platformExtensions[expectedPlatform]}`;
+  } else {
+    errorMessage = 'Định dạng file không được hỗ trợ. Vui lòng chọn file .gba, .nds, .3ds, .cci, .cxi hoặc .3dsx';
+  }
+  
   return {
     valid: false,
-    error: 'Định dạng file không được hỗ trợ. Vui lòng chọn file .gba, .nds, .3ds, .cci, .cxi, .3dsx hoặc .zip',
+    error: errorMessage,
   };
 }
 
@@ -158,8 +171,34 @@ async function copyRomFile(sourceUri: string, destDir: string, filename: string)
     // Construct destination path
     const destPath = `${destDir}/${filename}`;
     
-    // Copy file from source URI to destination
-    await copyFile(sourceUri, destPath);
+    // Handle content:// URIs from DocumentPicker
+    if (sourceUri.startsWith('content://')) {
+      const FileSystem = require('expo-file-system/legacy');
+      
+      // Step 1: Copy from content URI to cache first (expo-file-system can write to cache)
+      const cacheDir = FileSystem.cacheDirectory;
+      const tempPath = `${cacheDir}temp_import_${Date.now()}_${filename}`;
+      
+      await FileSystem.copyAsync({
+        from: sourceUri,
+        to: tempPath
+      });
+      
+      // Step 2: Copy from cache to destination using native copyFile
+      const tempFilePath = tempPath.replace('file://', '');
+      await copyFile(tempFilePath, destPath);
+      
+      // Step 3: Cleanup temp file
+      try {
+        await FileSystem.deleteAsync(tempPath, { idempotent: true });
+      } catch (e) {
+        console.warn('Failed to cleanup temp file:', e);
+      }
+    } else {
+      // Use native copyFile for file:// URIs
+      const filePath = sourceUri.replace('file://', '');
+      await copyFile(filePath, destPath);
+    }
     
     return destPath;
   } catch (error: any) {
@@ -167,38 +206,6 @@ async function copyRomFile(sourceUri: string, destDir: string, filename: string)
   }
 }
 
-async function extractZipFile(zipUri: string, destDir: string): Promise<string[]> {
-  try {
-    // Create destination directory
-    await createDirectory(destDir);
-    
-    // Extract ZIP
-    await unzip(zipUri, destDir);
-    
-    // Find ROM files in extracted content
-    const allFiles = await listFiles(destDir);
-    const romFiles = allFiles.filter((file: string) => {
-      const ext = file.toLowerCase();
-      return ext.endsWith('.gba') || 
-             ext.endsWith('.nds') || 
-             ext.endsWith('.3ds') ||
-             ext.endsWith('.cci') ||
-             ext.endsWith('.cxi') ||
-             ext.endsWith('.3dsx');
-    });
-    
-    if (romFiles.length === 0) {
-      throw new Error('NO_VALID_ROMS');
-    }
-    
-    return romFiles;
-  } catch (error: any) {
-    if (error.message === 'NO_VALID_ROMS') {
-      throw new Error('File ZIP không chứa ROM hợp lệ');
-    }
-    throw new Error(`Không thể giải nén file ZIP. File có thể bị hỏng: ${error.message}`);
-  }
-}
 
 // === Cover Image Extraction ===
 const COVER_DIR = '/storage/emulated/0/Alga/covers';
@@ -244,9 +251,148 @@ export function useGameImport(): UseGameImportReturn {
   }, []);
 
   const startImport = useCallback(async (emulatorId: string): Promise<ImportResult> => {
-    // TODO: Implement import workflow
-    return { success: false, error: 'Not implemented yet' };
-  }, []);
+    let destDir: string | null = null;
+    
+    try {
+      // Update state to validating
+      updateState({ isImporting: true, currentOperation: 'validating', progress: 0.1, error: null });
+      
+      // Determine expected platform for this emulator
+      const emulatorPlatformMap: Record<string, 'gba' | 'nds' | '3ds'> = {
+        'mgba': 'gba',
+        'melonds': 'nds',
+        'desmume': 'nds',
+        'citra': '3ds'
+      };
+      
+      const expectedPlatform = emulatorPlatformMap[emulatorId];
+      if (!expectedPlatform) {
+        updateState({ isImporting: false, currentOperation: 'idle', progress: 0, error: 'Emulator không hợp lệ' });
+        return { success: false, error: 'Emulator không hợp lệ' };
+      }
+      
+      // Open file picker
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/octet-stream', // For ROM files only
+        copyToCacheDirectory: false,
+      });
+      
+      // Handle cancellation
+      if (result.canceled || !result.assets?.length) {
+        updateState({ isImporting: false, currentOperation: 'idle', progress: 0 });
+        return { success: false };
+      }
+      
+      const file = result.assets[0];
+      const filename = file.name;
+      const sourceUri = file.uri;
+      
+      // Validate file
+      const validation = validateFile(filename, expectedPlatform);
+      if (!validation.valid) {
+        updateState({ isImporting: false, currentOperation: 'idle', progress: 0, error: validation.error });
+        return { success: false, error: validation.error };
+      }
+      
+      if (!validation.platform) {
+        updateState({ isImporting: false, currentOperation: 'idle', progress: 0, error: 'Không thể xác định platform từ file' });
+        return { success: false, error: 'Không thể xác định platform từ file' };
+      }
+      
+      const platform = validation.platform;
+      
+      // Validate platform matches emulator
+      if (platform !== expectedPlatform) {
+        const platformNames: Record<string, string> = {
+          'gba': 'Game Boy Advance',
+          'nds': 'Nintendo DS',
+          '3ds': 'Nintendo 3DS'
+        };
+        updateState({ 
+          isImporting: false, 
+          currentOperation: 'idle', 
+          progress: 0, 
+          error: `File này là ROM ${platformNames[platform]}, không thể import vào thư viện ${platformNames[expectedPlatform]}` 
+        });
+        return { 
+          success: false, 
+          error: `File này là ROM ${platformNames[platform]}, không thể import vào thư viện ${platformNames[expectedPlatform]}` 
+        };
+      }
+      
+      const ROMS_BASE = '/storage/emulated/0/Alga/roms';
+      
+      // Check if folder already exists (means game already imported)
+      const baseName = filename.replace(/\.(gba|nds|3ds|cci|cxi|3dsx)$/i, '');
+      const checkDir = `${ROMS_BASE}/${emulatorId}/${baseName}`;
+      
+      const folderExists = await fileExists(checkDir);
+      if (folderExists) {
+        updateState({ isImporting: false, currentOperation: 'idle', progress: 0, error: 'Game này đã có trong thư viện' });
+        return { success: false, error: 'Game này đã có trong thư viện' };
+      }
+      
+      // Handle raw ROM file
+      updateState({ currentOperation: 'copying', progress: 0.3 });
+      
+      // Use baseName already calculated above
+      destDir = `${ROMS_BASE}/${emulatorId}/${baseName}`;
+      
+      // Copy ROM file
+      const romPath = await copyRomFile(sourceUri, destDir, filename);
+      
+      // Metadata processing
+      updateState({ currentOperation: 'processing', progress: 0.7 });
+      
+      // Generate game metadata
+      const game = generateGameMetadata(filename, platform, romPath);
+      
+      // Add to downloaded games via downloadManager
+      await downloadManager.scanLocalLibrary(emulatorId, PLATFORM_CONFIG[platform].extensions);
+      
+      // Extract icon silently (non-blocking)
+      extractIconSilently(romPath, game.id, platform).catch(() => {
+        console.warn('Icon extraction failed but import continues');
+      });
+      
+      // Update state to done and reset after a short delay
+      updateState({ currentOperation: 'done', progress: 1.0 });
+      
+      // Reset import state after showing "done" briefly
+      setTimeout(() => {
+        updateState({ isImporting: false, currentOperation: 'idle', progress: 0 });
+      }, 500);
+      
+      // Return success with game and source file path
+      return { 
+        success: true, 
+        game, 
+        sourceFilePath: sourceUri 
+      };
+      
+    } catch (error: any) {
+      // Cleanup partial import
+      if (destDir) {
+        try {
+          await deleteFileOrDir(destDir);
+        } catch (cleanupError) {
+          console.warn('Failed to cleanup partial import:', cleanupError);
+        }
+      }
+      
+      // Map error to user-friendly message
+      let userMessage = error.message || 'Đã xảy ra lỗi không xác định';
+      
+      if (error.message?.includes('Không đủ dung lượng')) {
+        userMessage = 'Không đủ dung lượng lưu trữ';
+      } else if (error.message?.includes('Permission denied') || error.message?.includes('quyền')) {
+        userMessage = 'Không có quyền truy cập file';
+      }
+      
+      updateState({ isImporting: false, currentOperation: 'idle', progress: 0, error: userMessage });
+      return { success: false, error: userMessage };
+    }
+  }, [updateState, downloadManager]);
 
   const cancelImport = useCallback(() => {
     setImportState({
@@ -258,8 +404,35 @@ export function useGameImport(): UseGameImportReturn {
   }, []);
 
   const deleteSourceFile = useCallback(async (filePath: string): Promise<boolean> => {
-    // TODO: Implement source file deletion
-    return false;
+    try {
+      if (filePath.startsWith('content://')) {
+        // Try to delete content URI using expo-file-system
+        const FileSystem = require('expo-file-system/legacy');
+        
+        try {
+          // Try to get file info first
+          const fileInfo = await FileSystem.getInfoAsync(filePath);
+          if (fileInfo.exists) {
+            await FileSystem.deleteAsync(filePath, { idempotent: true });
+            return true;
+          }
+        } catch (e) {
+          // If expo-file-system can't handle it, content URI can't be deleted
+          console.log('Cannot delete content:// URI:', e);
+          return false;
+        }
+      } else {
+        // Delete file:// path using native function
+        const cleanPath = filePath.replace('file://', '');
+        await deleteFileOrDir(cleanPath);
+        return true;
+      }
+      
+      return false;
+    } catch (error) {
+      console.warn('Failed to delete source file:', error);
+      return false;
+    }
   }, []);
 
   return {

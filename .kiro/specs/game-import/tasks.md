@@ -129,8 +129,8 @@ The implementation follows a 3-layer architecture:
     - Test extractIconSilently handles errors silently without throwing
     - _Requirements: 6.1, 6.2, 6.4_
 
-- [-] 7. Implement main import workflow orchestration
-  - [-] 7.1 Create startImport function
+- [x] 7. Implement main import workflow orchestration
+  - [x] 7.1 Create startImport function
     - Accept emulatorId as parameter
     - Update import state to 'validating' operation
     - Open file picker using expo-document-picker with appropriate MIME types
@@ -140,7 +140,7 @@ The implementation follows a 3-layer architecture:
     - If validation fails, return ImportResult with error
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 2.1, 4.1, 4.2_
 
-  - [ ] 7.2 Implement file copy/extraction in startImport
+  - [x] 7.2 Implement file copy/extraction in startImport
     - Determine if file is ZIP or raw ROM based on extension
     - Update import state to 'copying' or 'extracting' operation
     - Generate unique folder name using generateUniqueFolderName
@@ -150,7 +150,7 @@ The implementation follows a 3-layer architecture:
     - Store ROM file path for metadata generation
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 4.3, 4.4_
 
-  - [ ] 7.3 Implement metadata processing in startImport
+  - [x] 7.3 Implement metadata processing in startImport
     - Update import state to 'processing' operation
     - Call generateGameMetadata to create ApiGame object
     - Get useDownloadManager hook instance
@@ -160,7 +160,7 @@ The implementation follows a 3-layer architecture:
     - Return ImportResult with success: true, game object, and sourceFilePath
     - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7, 6.1, 6.2, 4.5_
 
-  - [ ] 7.4 Implement error handling in startImport
+  - [x] 7.4 Implement error handling in startImport
     - Wrap entire workflow in try-catch block
     - Map caught errors to user-friendly error messages
     - Clean up partial imports on failure (delete destination folder)
@@ -177,8 +177,8 @@ The implementation follows a 3-layer architecture:
     - Test cleanup of partial imports on failure
     - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.6_
 
-- [ ] 8. Implement source file cleanup functionality
-  - [ ] 8.1 Create deleteSourceFile function
+- [x] 8. Implement source file cleanup functionality
+  - [x] 8.1 Create deleteSourceFile function
     - Accept filePath as parameter
     - Call deleteFileOrDir native function
     - Return boolean indicating success or failure
@@ -191,7 +191,7 @@ The implementation follows a 3-layer architecture:
     - Test deleteSourceFile returns false on error
     - _Requirements: 7.4_
 
-- [ ] 9. Implement cancelImport function
+- [x] 9. Implement cancelImport function
   - Create cancelImport function to abort ongoing import
   - Reset import state to idle
   - Note: Actual cancellation of file operations may not be possible, but state should be reset
@@ -200,34 +200,34 @@ The implementation follows a 3-layer architecture:
 - [ ] 10. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 11. Add import button to library.tsx UI
-  - [ ] 11.1 Import useGameImport hook in library.tsx
+- [x] 11. Add import button to library.tsx UI
+  - [x] 11.1 Import useGameImport hook in library.tsx
     - Add import statement for useGameImport hook
     - Initialize hook at component level: `const { importState, startImport, deleteSourceFile } = useGameImport()`
     - _Requirements: 10.1, 10.2_
 
-  - [ ] 11.2 Add import button to header toolbar
+  - [x] 11.2 Add import button to header toolbar
     - Add TouchableOpacity with Upload icon next to "Tải thêm" button
     - Style button with circular background (bg-white/10)
     - Set onPress handler to call startImport with current emulatorId
     - Ensure button is visible in both carousel and grid view modes
     - _Requirements: 10.1, 10.2, 10.3, 10.4_
 
-  - [ ] 11.3 Add import button to empty state
+  - [x] 11.3 Add import button to empty state
     - Add TouchableOpacity with Upload icon next to "Tải game" button in empty state
     - Style consistently with existing empty state buttons
     - Set onPress handler to call startImport with current emulatorId
     - _Requirements: 10.3_
 
-- [ ] 12. Implement progress indicator UI
-  - [ ] 12.1 Create progress overlay component
+- [x] 12. Implement progress indicator UI
+  - [x] 12.1 Create progress overlay component
     - Add conditional View overlay when importState.isImporting is true
     - Style with absolute positioning, black/80 background, centered content
     - Add ActivityIndicator with PRIMARY color
     - Add Text displaying current operation message
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-  - [ ] 12.2 Create operation message mapping
+  - [x] 12.2 Create operation message mapping
     - Define OPERATION_MESSAGES constant mapping ImportOperation to Vietnamese messages
     - Map 'validating' → "Đang kiểm tra file..."
     - Map 'copying' → "Đang sao chép ROM..."
@@ -236,14 +236,14 @@ The implementation follows a 3-layer architecture:
     - Map 'done' → "Hoàn tất!"
     - _Requirements: 4.2, 4.3, 4.4_
 
-- [ ] 13. Implement source file cleanup dialog
-  - [ ] 13.1 Add state for cleanup dialog
+- [x] 13. Implement source file cleanup dialog
+  - [x] 13.1 Add state for cleanup dialog
     - Add useState for showCleanupDialog boolean
     - Add useState for sourceFilePath string
     - Add useState for sourceFileSize number (optional)
     - _Requirements: 7.1, 7.2_
 
-  - [ ] 13.2 Create cleanup confirmation dialog
+  - [x] 13.2 Create cleanup confirmation dialog
     - Add CustomAlert component for cleanup confirmation
     - Set visible prop to showCleanupDialog state
     - Set icon to "🗑️"
@@ -253,19 +253,19 @@ The implementation follows a 3-layer architecture:
     - Set cancelText to "Giữ lại"
     - _Requirements: 7.1, 7.2, 7.3_
 
-  - [ ] 13.3 Implement cleanup dialog handlers
+  - [x] 13.3 Implement cleanup dialog handlers
     - Create handleDeleteSource function to call deleteSourceFile
     - Show success/error message after deletion attempt
     - Close dialog after user action
     - Trigger dialog display after successful import in startImport
     - _Requirements: 7.4, 7.5_
 
-- [ ] 14. Implement success and error message dialogs
-  - [ ] 14.1 Add state for success/error alerts
+- [x] 14. Implement success and error message dialogs
+  - [x] 14.1 Add state for success/error alerts
     - Add useState for importAlert with title and message fields
     - _Requirements: 4.5, 8.1, 8.2, 8.3, 8.4_
 
-  - [ ] 14.2 Create success/error alert component
+  - [x] 14.2 Create success/error alert component
     - Add CustomAlert component for import feedback
     - Set visible prop to !!importAlert
     - Display importAlert.title and importAlert.message
@@ -273,26 +273,26 @@ The implementation follows a 3-layer architecture:
     - Close alert on confirm
     - _Requirements: 4.5, 8.1, 8.2, 8.3, 8.4_
 
-  - [ ] 14.3 Trigger alerts from import workflow
+  - [x] 14.3 Trigger alerts from import workflow
     - Show success alert with game name after successful import
     - Show error alert with user-friendly message on import failure
     - Map error codes to Vietnamese error messages
     - _Requirements: 4.5, 8.1, 8.2, 8.3, 8.4, 8.5_
 
-- [ ] 15. Implement library refresh after import
-  - [ ] 15.1 Trigger library refresh on import success
+- [x] 15. Implement library refresh after import
+  - [x] 15.1 Trigger library refresh on import success
     - After successful import, ensure downloadedGames state is updated
     - Verify useDownloadManager.addToDownloaded triggers re-render
     - Ensure imported game appears immediately in library list
     - _Requirements: 9.1, 9.2, 9.3_
 
-  - [ ] 15.2 Verify cover image display
+  - [x] 15.2 Verify cover image display
     - Ensure CoverImage component loads extracted cover for NDS/3DS games
     - Ensure fallback icon displays for GBA games
     - Test cover image loading from `/storage/emulated/0/Alga/covers/{gameId}.png`
     - _Requirements: 9.4, 9.5_
 
-- [ ] 16. Final checkpoint - Ensure all tests pass and manual testing
+- [x] 16. Final checkpoint - Ensure all tests pass and manual testing
   - Ensure all tests pass, ask the user if questions arise.
   - Verify import button is visible and functional in all view modes
   - Test complete import workflow with GBA, NDS, and 3DS ROM files

@@ -1,7 +1,7 @@
 import '../global.css';
 
 import { FocusIndicator } from '@/components/FocusIndicator';
-import { GamepadInputManager } from '@/components/GamepadInputManager';
+// import { GamepadInputManager } from '@/components/GamepadInputManager';
 import { GamepadProvider } from '@/contexts/GamepadContext';
 import { DownloadManagerProvider } from '@/hooks/useDownloadManager';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
@@ -19,7 +19,7 @@ export default function TabLayout() {
       <DownloadManagerProvider>
         <GamepadProvider>
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <GamepadInputManager />
+            {/* <GamepadInputManager /> */}
             <Slot />
             <FocusIndicator />
           </ThemeProvider>
