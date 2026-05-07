@@ -207,16 +207,16 @@ export default function LandingPage() {
         </section>
 
         {/* Gamepad Support Section */}
-        <section className="w-full py-20 relative">
-          <div className="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row-reverse items-center gap-20">
+        <section className="w-full py-12 md:py-20 relative">
+          <div className="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row-reverse items-center gap-10 md:gap-20">
             <div className="flex-1 text-center md:text-left">
-              <h2 className="text-4xl md:text-5xl font-black mb-8 tracking-tighter">Hỗ trợ tay cầm</h2>
-              <p className="text-xl text-slate-400 max-w-xl leading-relaxed">
+              <h2 className="text-4xl md:text-5xl font-black mb-6 md:mb-8 tracking-tighter">Hỗ trợ tay cầm</h2>
+              <p className="text-lg md:text-xl text-slate-400 max-w-xl leading-relaxed">
                 Trải nghiệm chơi game chuyên nghiệp với khả năng hỗ trợ tay cầm toàn diện. Tương thích hoàn hảo với GameSir, Xbox, DualShock và nhiều thiết bị ngoại vi khác. Chỉ cần cắm và chạy.
               </p>
             </div>
-            <div className="flex-1 relative group">
-              <div className="w-full aspect-video bg-white/5 rounded-[40px] border border-white/10 overflow-hidden relative shadow-2xl">
+            <div className="flex-1 w-full relative group">
+              <div className="w-full aspect-video bg-white/5 rounded-[30px] md:rounded-[40px] overflow-hidden relative shadow-2xl">
                 <Image 
                   src="/gamesir.jpg" 
                   alt="Gamepad Support" 
@@ -229,16 +229,16 @@ export default function LandingPage() {
         </section>
 
         {/* Store Section - Normal Info Section */}
-        <section className="w-full py-20 relative">
-          <div className="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row items-center gap-20">
+        <section className="w-full py-12 md:py-20 relative">
+          <div className="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row items-center gap-10 md:gap-20">
             <div className="flex-1 text-center md:text-left">
-              <h2 className="text-4xl md:text-5xl font-black mb-8 tracking-tighter">Alga Store</h2>
-              <p className="text-xl text-slate-400 max-w-xl leading-relaxed">
+              <h2 className="text-4xl md:text-5xl font-black mb-6 md:mb-8 tracking-tighter">Alga Store</h2>
+              <p className="text-lg md:text-xl text-slate-400 max-w-xl leading-relaxed">
                 Khám phá kho tàng game retro khổng lồ. Tải trực tiếp, quản lý thư viện và cập nhật metadata chỉ với một cú chạm. Hệ thống server tốc độ cao đảm bảo trải nghiệm tải game không gián đoạn.
               </p>
             </div>
-            <div className="flex-1 relative group">
-              <div className="w-full aspect-video bg-gradient-to-br from-blue-600/20 to-indigo-600/20 rounded-[40px] border border-white/10 overflow-hidden relative shadow-2xl shadow-blue-500/10">
+            <div className="flex-1 w-full relative group">
+              <div className="w-full aspect-video bg-gradient-to-br from-blue-600/20 to-indigo-600/20 rounded-[30px] md:rounded-[40px] border border-white/10 overflow-hidden relative shadow-2xl shadow-blue-500/10">
                 <Image 
                   src="/shop.avif" 
                   alt="Alga Store" 
@@ -252,16 +252,21 @@ export default function LandingPage() {
         </section>
 
         {/* Main CTA Section - Download APK */}
-        <section id="download" className="w-full py-20 mb-10">
+        <section id="download" className="w-full py-12 md:py-20 mb-10">
           <div className="max-w-[1200px] mx-auto px-6">
-            <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[60px] p-12 md:p-24 text-center relative overflow-hidden shadow-2xl shadow-blue-900/40">
+            <div className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[40px] md:rounded-[60px] p-10 md:p-24 text-center relative overflow-hidden shadow-2xl shadow-blue-900/40">
               <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-white/10 blur-[120px] rounded-full translate-x-1/2 -translate-y-1/2" />
               
               <div className="relative z-10">
-                <h2 className="text-4xl md:text-6xl font-black text-white mb-8">Sẵn sàng chơi chưa?</h2>
-                <p className="text-blue-100 text-lg mb-12 max-w-xl mx-auto">Tải bản Alga APK mới nhất ngay bây giờ và bắt đầu hành trình retro của bạn.</p>
-                <a href="http://duongle.dev/app-release.apk" download>
-                  <button className="bg-white text-blue-600 font-black px-12 py-5 rounded-full text-xl hover:scale-105 active:scale-95 transition-all shadow-xl">
+                <h2 className="text-3xl md:text-6xl font-black text-white mb-6 md:mb-8">Sẵn sàng chơi chưa?</h2>
+                <p className="text-blue-100 text-base md:text-lg mb-8 md:mb-12 max-w-xl mx-auto leading-relaxed">Tải bản Alga APK mới nhất ngay bây giờ và bắt đầu hành trình retro của bạn.</p>
+                <a 
+                  href="https://duongle.dev/app-release.apk" 
+                  download="alga-emulator.apk"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <button className="bg-white text-blue-600 font-black px-8 md:px-12 py-4 md:py-5 rounded-full text-lg md:text-xl hover:scale-105 active:scale-95 transition-all shadow-xl">
                     TẢI APK NGAY
                   </button>
                 </a>
