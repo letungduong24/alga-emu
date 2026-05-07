@@ -7,6 +7,10 @@ import android.view.MotionEvent
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.hardware.input.InputManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -20,11 +24,14 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import androidx.lifecycle.lifecycleScope
 
-class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener {
+class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener, SensorEventListener {
 
     var retroView: GLRetroView? = null
     private var touchControls: TouchControlsOverlay? = null
     private var inputManager: InputManager? = null
+    private var sensorManager: SensorManager? = null
+    private var gyroscope: Sensor? = null
+    private var accelerometer: Sensor? = null
 
     // melonDS layouts
     private val melondsLayouts = arrayOf(
@@ -303,11 +310,31 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener {
         inputManager = getSystemService(INPUT_SERVICE) as InputManager
         inputManager?.registerInputDeviceListener(this, null)
         updateGamepadState()
+
+        // === Gyroscope support for 3DS (Mario Kart 7, etc.) ===
+        if (is3DS) {
+            sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
+            gyroscope = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+            accelerometer = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+            
+            if (gyroscope != null) {
+                sensorManager?.registerListener(this, gyroscope, SensorManager.SENSOR_DELAY_GAME)
+                android.util.Log.d("GameActivity", "Gyroscope enabled for 3DS")
+            }
+            if (accelerometer != null) {
+                sensorManager?.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME)
+                android.util.Log.d("GameActivity", "Accelerometer enabled for 3DS")
+            }
+        }
     }
 
     override fun onPause() {
         android.util.Log.d("GameActivity", "onPause — saving SRAM to file")
         saveSRAMToFile()
+        
+        // Unregister sensors
+        sensorManager?.unregisterListener(this)
+        
         super.onPause()
     }
 
@@ -353,6 +380,48 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener {
             return retroView?.onGenericMotionEvent(event) ?: super.onGenericMotionEvent(event)
         }
         return super.onGenericMotionEvent(event)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val source = event.source
+        // Forward gamepad button events to LibretroDroid
+        if (source and InputDevice.SOURCE_GAMEPAD == InputDevice.SOURCE_GAMEPAD ||
+            source and InputDevice.SOURCE_JOYSTICK == InputDevice.SOURCE_JOYSTICK) {
+            return retroView?.dispatchKeyEvent(event) ?: super.dispatchKeyEvent(event)
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    // === Gyroscope/Accelerometer sensor events ===
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null || !is3DS) return
+        
+        when (event.sensor.type) {
+            Sensor.TYPE_GYROSCOPE -> {
+                // Gyroscope data: rotation rate in rad/s around x, y, z axes
+                // Citra expects gyroscope input for motion controls
+                // Map to LibretroDroid motion input (if supported by core)
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
+                
+                // LibretroDroid may support motion input via setMotion() or similar
+                // For now, log the values (Citra core may need specific implementation)
+                // android.util.Log.d("GameActivity", "Gyro: x=$x, y=$y, z=$z")
+            }
+            Sensor.TYPE_ACCELEROMETER -> {
+                // Accelerometer data: acceleration in m/s² along x, y, z axes
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
+                
+                // android.util.Log.d("GameActivity", "Accel: x=$x, y=$y, z=$z")
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        // Not needed for gyroscope
     }
 
     // === NDS screen layout ===

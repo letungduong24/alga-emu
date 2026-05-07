@@ -8,13 +8,13 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft, Calendar, Download, FileArchive, HardDrive, Trash2, Upload } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  BackHandler,
-  Modal,
-  ScrollView, StatusBar,
-  Text, TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    BackHandler,
+    Modal,
+    ScrollView, StatusBar,
+    Text, TouchableOpacity,
+    View
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -62,7 +62,8 @@ export default function SettingsScreen() {
 
   // Prevent back navigation and keep screen awake during backup/restore
   useEffect(() => {
-    const isOperating = isBackingUp || isRestoring;
+    // Only block navigation during backup, not restore
+    const isOperating = isBackingUp;
     
     if (isOperating) {
       // Keep screen awake
@@ -72,7 +73,7 @@ export default function SettingsScreen() {
       const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
         Alert.alert(
           'Đang xử lý',
-          'Backup/Restore đang chạy. Vui lòng đợi hoàn tất.',
+          'Backup đang chạy. Vui lòng đợi hoàn tất.',
           [{ text: 'OK' }]
         );
         return true; // Prevent default back behavior
@@ -83,7 +84,7 @@ export default function SettingsScreen() {
         deactivateKeepAwake(); // This is async but we don't need to await in cleanup
       };
     }
-  }, [isBackingUp, isRestoring]);
+  }, [isBackingUp]);
 
   // Handle create backup (always without covers)
   const handleCreateBackup = useCallback(async () => {
@@ -110,27 +111,34 @@ export default function SettingsScreen() {
     
     try {
       setShowRestoreConfirm(false);
-      const result = await restoreBackup(
+      
+      // Start restore in background (non-blocking)
+      restoreBackup(
         selectedBackupPath,
         downloadManager,
         (prog, msg) => {
           console.log(`Restore progress: ${Math.round(prog * 100)}% - ${msg}`);
         }
-      );
-      
-      // Show custom alert with result
-      setRestoreResult({
-        gamesDownloaded: result.gamesDownloaded,
-        gamesFailed: result.gamesFailed,
-        savesRestored: result.savesRestored,
+      ).then((result) => {
+        // Show result when complete
+        setRestoreResult({
+          gamesDownloaded: result.gamesDownloaded,
+          gamesFailed: result.gamesFailed,
+          savesRestored: result.savesRestored,
+        });
+        setShowRestoreComplete(true);
+      }).catch((error: any) => {
+        Alert.alert('Lỗi', error.message || 'Không thể restore backup');
       });
-      setShowRestoreComplete(true);
+      
+      // Navigate to library immediately to show download progress
+      router.push('/library');
     } catch (error: any) {
       Alert.alert('Lỗi', error.message || 'Không thể restore backup');
     } finally {
       setSelectedBackupPath(null);
     }
-  }, [selectedBackupPath, restoreBackup, downloadManager]);
+  }, [selectedBackupPath, restoreBackup, downloadManager, router]);
 
   // Handle select backup file
   const handleSelectBackupFile = useCallback(async () => {
@@ -198,10 +206,10 @@ export default function SettingsScreen() {
         <View className="flex-row items-center">
           <TouchableOpacity 
             onPress={() => {
-              if (isBackingUp || isRestoring) {
+              if (isBackingUp) {
                 Alert.alert(
                   'Đang xử lý',
-                  'Backup/Restore đang chạy. Vui lòng đợi hoàn tất.',
+                  'Backup đang chạy. Vui lòng đợi hoàn tất.',
                   [{ text: 'OK' }]
                 );
               } else {

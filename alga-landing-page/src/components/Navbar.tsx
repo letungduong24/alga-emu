@@ -4,16 +4,18 @@ import Link from "next/link";
 
 export default function Navbar() {
   return (
-    <nav className="fixed top-0 w-full z-50 glass">
-      <div className="container mx-auto px-4 h-16 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <span className="text-xl font-bold tracking-tight text-white">ALGA</span>
+    <nav className="fixed top-0 w-full z-50 glass px-6">
+      <div className="mx-auto h-20 flex items-center justify-between max-w-[1400px]">
+        {/* Left Section - Text Logo */}
+        <Link href="/" className="text-2xl font-black text-white tracking-tighter">
+          Alga
         </Link>
-        
-        <div className="flex items-center gap-6 md:gap-8">
-          <Link href="#features" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">Tính năng</Link>
-          <Link href="#emulators" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">Giả lập</Link>
-          <Link href="#download" className="text-sm font-medium text-slate-300 hover:text-white transition-colors">Tải về</Link>
+
+        {/* Right Section - Navigation Links */}
+        <div className="flex items-center gap-8">
+          <Link href="/" className="text-sm font-bold text-slate-400 hover:text-white transition-colors uppercase tracking-widest">Trang chủ</Link>
+          <Link href="#features" className="text-sm font-bold text-slate-400 hover:text-white transition-colors uppercase tracking-widest">Tính năng</Link>
+          <Link href="#download" className="text-sm font-bold text-slate-400 hover:text-white transition-colors uppercase tracking-widest">Tải về</Link>
         </div>
       </div>
     </nav>

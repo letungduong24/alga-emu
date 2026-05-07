@@ -1,22 +1,31 @@
-import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
-import {
-  View, Text, FlatList, Image, StatusBar, ImageBackground,
-  useWindowDimensions, TouchableOpacity, TextInput, Modal,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { CustomAlert } from '@/components/CustomAlert';
 import { EMULATORS } from '@/constants/emulators';
 import { useDownloadManager } from '@/hooks/useDownloadManager';
 import { useCore } from '@/hooks/useEmulator';
-import { launchGame, fileExists, exportSave, importSave, hasSave, hasExternalSave } from '../../modules/app-launcher';
-import { CustomAlert } from '@/components/CustomAlert';
 import { ApiGame } from '@/hooks/useGameApi';
-import { ArrowLeft, Search, Plus, Play, Trash2, X, Grid3x3, List, Download, Upload, MoreVertical } from 'lucide-react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ArrowLeft, Download, Grid3x3, List, MoreVertical, Play, Plus, Search, Trash2, Upload, X } from 'lucide-react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    FlatList, Image,
+    ImageBackground,
+    Modal,
+    StatusBar,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View,
+} from 'react-native';
 import Animated, {
-  FadeIn, FadeInDown, FadeInUp,
-  useAnimatedStyle, withSpring, useSharedValue,
+    FadeInDown,
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring
 } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { exportSave, fileExists, hasSave, importSave, launchGame } from '../../modules/app-launcher';
 
 const CARD_WIDTH = 200;
 const CARD_MARGIN = 12;
@@ -39,6 +48,7 @@ export default function LibraryScreen() {
   const {
     downloadedGames, scanLocalLibrary,
     getRomPath, deleteGame,
+    downloads: downloadManager,
   } = useDownloadManager();
   const { isCoreReady, isDownloading: coreLoading, progress: coreProgress, downloadCore, corePath } = useCore(
     emulator?.coreName ?? '', emulator?.coreUrl ?? ''
@@ -62,10 +72,27 @@ export default function LibraryScreen() {
   }, [downloadedGames, emulatorId]);
 
   const filteredGames = useMemo(() => {
-    if (!searchText.trim()) return emulatorGames;
-    const q = searchText.toLowerCase();
-    return emulatorGames.filter((g) => g.name.toLowerCase().includes(q));
-  }, [emulatorGames, searchText]);
+    let games = emulatorGames;
+    
+    // Filter by search text
+    if (searchText.trim()) {
+      const q = searchText.toLowerCase();
+      games = games.filter((g) => g.name.toLowerCase().includes(q));
+    }
+    
+    // Sort: downloading games first, keep original order for the rest
+    return games.sort((a, b) => {
+      const aDownloading = downloadManager.downloads.has(a.id);
+      const bDownloading = downloadManager.downloads.has(b.id);
+      
+      // Downloading games first
+      if (aDownloading && !bDownloading) return -1;
+      if (!aDownloading && bDownloading) return 1;
+      
+      // Keep original order
+      return 0;
+    });
+  }, [emulatorGames, searchText, downloadManager.downloads]);
 
   useEffect(() => {
     if (emulator) {
