@@ -3,15 +3,19 @@ import { EmulatorCard } from '@/components/EmulatorCard';
 import { FocusableView } from '@/components/FocusableView';
 import { EMULATORS } from '@/constants/emulators';
 import { useCore } from '@/hooks/useEmulator';
+import { useBackupRestoreStore } from '@/stores/backupRestoreStore';
 import { useRouter } from 'expo-router';
+import { Download } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, FlatList, ImageBackground, StatusBar, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, AppState, FlatList, ImageBackground, StatusBar, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import Animated, {
-    FadeIn,
-    FadeInDown,
+  FadeIn,
+  FadeInDown,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { checkStoragePermission, requestStoragePermission } from '../../modules/app-launcher';
+
+const PRIMARY = '#00f2ff';
 
 // Card cho mỗi hệ máy trong carousel
 const EmulatorItem = ({ emulator, isSelected, onFocus, onAction, cardSize }: any) => {
@@ -52,6 +56,9 @@ export default function HomeScreen() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const [showPermissionAlert, setShowPermissionAlert] = useState(false);
+
+  // Get restore state from zustand store
+  const { isRestoring, progress, currentOperation } = useBackupRestoreStore();
 
   // === Storage Permission Check ===
   const recheckPermission = useCallback(async () => {
@@ -155,6 +162,36 @@ export default function HomeScreen() {
           <Text className="text-white text-xs font-semibold">Cài đặt</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Restore Status Indicator */}
+      {isRestoring && (
+        <Animated.View 
+          entering={FadeInDown.duration(300)} 
+          className="mx-6 mb-4 bg-white/10 border border-white/10 rounded-2xl p-4"
+        >
+          <View className="flex-row items-center">
+            <View className="w-10 h-10 rounded-xl items-center justify-center mr-3" style={{ backgroundColor: PRIMARY + '20' }}>
+              <Download size={18} color={PRIMARY} />
+            </View>
+            <View className="flex-1">
+              <View className="flex-row items-center justify-between mb-1">
+                <Text className="text-white font-semibold text-sm">Đang khôi phục saves</Text>
+                <Text className="text-white/60 text-xs">{Math.round(progress * 100)}%</Text>
+              </View>
+              <View className="bg-white/10 h-1.5 rounded-full overflow-hidden mb-1">
+                <View
+                  className="h-full rounded-full"
+                  style={{ width: `${progress * 100}%`, backgroundColor: PRIMARY }}
+                />
+              </View>
+              <Text className="text-white/50 text-xs" numberOfLines={1}>
+                {currentOperation}
+              </Text>
+            </View>
+            <ActivityIndicator size="small" color={PRIMARY} style={{ marginLeft: 8 }} />
+          </View>
+        </Animated.View>
+      )}
 
       {/* Main Content — side-by-side in landscape */}
       <View className={`flex-1 ${isLandscape ? 'flex-row' : ''}`}>

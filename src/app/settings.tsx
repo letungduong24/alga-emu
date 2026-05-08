@@ -1,6 +1,6 @@
 import { CustomAlert } from '@/components/CustomAlert';
 import { useBackupRestore } from '@/hooks/useBackupRestore';
-import { useDownloadManager } from '@/hooks/useDownloadManager';
+import { useBackupRestoreStore } from '@/stores/backupRestoreStore';
 import { formatFileSize, formatTimestamp } from '@/types/backup';
 import * as DocumentPicker from 'expo-document-picker';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
@@ -8,13 +8,13 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft, Calendar, Download, FileArchive, HardDrive, Trash2, Upload } from 'lucide-react-native';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    BackHandler,
-    Modal,
-    ScrollView, StatusBar,
-    Text, TouchableOpacity,
-    View
+  ActivityIndicator,
+  Alert,
+  BackHandler,
+  Modal,
+  ScrollView, StatusBar,
+  Text, TouchableOpacity,
+  View
 } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -24,22 +24,18 @@ const PRIMARY = '#00f2ff';
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const downloadManager = useDownloadManager();
+  
+  // Use zustand store for global state
+  const { isBackingUp, isRestoring, progress, currentOperation, error } = useBackupRestoreStore();
   
   const {
     createBackup,
     restoreBackup,
     listBackups,
     deleteBackup,
-    isBackingUp,
-    isRestoring,
-    progress,
-    currentOperation,
     backupList,
-    error,
   } = useBackupRestore();
 
-  const [showBackupOptions, setShowBackupOptions] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [selectedBackupPath, setSelectedBackupPath] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -60,16 +56,13 @@ export default function SettingsScreen() {
     listBackups();
   }, []);
 
-  // Prevent back navigation and keep screen awake during backup/restore
+  // Prevent back navigation and keep screen awake during backup only
   useEffect(() => {
-    // Only block navigation during backup, not restore
-    const isOperating = isBackingUp;
-    
-    if (isOperating) {
+    if (isBackingUp) {
       // Keep screen awake
       activateKeepAwakeAsync();
       
-      // Prevent back button
+      // Prevent back button during backup only
       const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
         Alert.alert(
           'Đang xử lý',
@@ -81,7 +74,7 @@ export default function SettingsScreen() {
       
       return () => {
         backHandler.remove();
-        deactivateKeepAwake(); // This is async but we don't need to await in cleanup
+        deactivateKeepAwake();
       };
     }
   }, [isBackingUp]);
@@ -115,30 +108,32 @@ export default function SettingsScreen() {
       // Start restore in background (non-blocking)
       restoreBackup(
         selectedBackupPath,
-        downloadManager,
         (prog, msg) => {
           console.log(`Restore progress: ${Math.round(prog * 100)}% - ${msg}`);
         }
       ).then((result) => {
         // Show result when complete
         setRestoreResult({
-          gamesDownloaded: result.gamesDownloaded,
-          gamesFailed: result.gamesFailed,
+          gamesDownloaded: 0,
+          gamesFailed: 0,
           savesRestored: result.savesRestored,
         });
         setShowRestoreComplete(true);
+        
+        // Ensure state is reset (backup for setTimeout in hook)
+        setTimeout(() => {
+          console.log('Backup reset from settings.tsx');
+          // Don't call resetState here as it might conflict with hook's setTimeout
+        }, 3000);
       }).catch((error: any) => {
         Alert.alert('Lỗi', error.message || 'Không thể restore backup');
       });
-      
-      // Navigate to home immediately to show download progress
-      router.push('/');
     } catch (error: any) {
       Alert.alert('Lỗi', error.message || 'Không thể restore backup');
     } finally {
       setSelectedBackupPath(null);
     }
-  }, [selectedBackupPath, restoreBackup, downloadManager, router]);
+  }, [selectedBackupPath, restoreBackup]);
 
   // Handle select backup file
   const handleSelectBackupFile = useCallback(async () => {
@@ -241,23 +236,29 @@ export default function SettingsScreen() {
             </View>
             <View className="flex-1">
               <Text className="text-white font-semibold text-base">Tạo Backup</Text>
-              <Text className="text-white/40 text-xs mt-0.5">Sao lưu games và saves</Text>
+              <Text className="text-white/40 text-xs mt-0.5">Sao lưu file saves</Text>
             </View>
           </TouchableOpacity>
 
           {/* Restore Backup Button */}
           <TouchableOpacity
-            onPress={handleSelectBackupFile}
-            disabled={isBackingUp || isRestoring}
+            onPress={() => {
+              if (isRestoring) {
+                Alert.alert('Đang khôi phục', 'Vui lòng đợi phiên restore hiện tại hoàn tất');
+                return;
+              }
+              handleSelectBackupFile();
+            }}
+            disabled={isBackingUp}
             className="bg-white/10 border border-white/10 rounded-2xl p-4 flex-row items-center"
-            style={{ opacity: (isBackingUp || isRestoring) ? 0.5 : 1 }}
+            style={{ opacity: isBackingUp ? 0.5 : 1 }}
           >
             <View className="w-12 h-12 rounded-xl items-center justify-center mr-4 bg-emerald-500/20">
               <Download size={20} color="white" />
             </View>
             <View className="flex-1">
               <Text className="text-white font-semibold text-base">Khôi phục Backup</Text>
-              <Text className="text-white/40 text-xs mt-0.5">Restore từ file backup</Text>
+              <Text className="text-white/40 text-xs mt-0.5">Restore file saves từ backup</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -335,19 +336,23 @@ export default function SettingsScreen() {
                   <View className="flex-row items-center">
                     <FileArchive size={12} color="rgba(255,255,255,0.4)" />
                     <Text className="text-white/60 text-xs ml-1.5">
-                      {backup.gameCount} games
+                      {backup.gameCount} saves
                     </Text>
                   </View>
                 </View>
 
                 <TouchableOpacity
                   onPress={() => {
+                    if (isRestoring) {
+                      Alert.alert('Đang khôi phục', 'Vui lòng đợi phiên restore hiện tại hoàn tất');
+                      return;
+                    }
                     setSelectedBackupPath(backup.filePath);
                     setShowRestoreConfirm(true);
                   }}
-                  disabled={isBackingUp || isRestoring}
+                  disabled={isBackingUp}
                   className="mt-3 py-2 rounded-xl items-center"
-                  style={{ backgroundColor: PRIMARY + '20', opacity: (isBackingUp || isRestoring) ? 0.5 : 1 }}
+                  style={{ backgroundColor: PRIMARY + '20', opacity: isBackingUp ? 0.5 : 1 }}
                 >
                   <Text className="font-semibold text-xs" style={{ color: PRIMARY }}>
                     Khôi phục
@@ -375,7 +380,7 @@ export default function SettingsScreen() {
           <View className="bg-[#1a1a2e] rounded-3xl p-6 mx-6 w-full max-w-sm">
             <Text className="text-white text-xl font-bold mb-3">Xác nhận Restore</Text>
             <Text className="text-white/60 text-sm mb-6">
-              Bạn có chắc muốn khôi phục backup này? Games sẽ được tải lại tự động.
+              Bạn có chắc muốn khôi phục backup này? File saves sẽ được khôi phục.
             </Text>
             
             <View className="flex-row gap-x-3">
@@ -440,7 +445,7 @@ export default function SettingsScreen() {
         title="Restore hoàn tất"
         message={
           restoreResult
-            ? `Games tải về: ${restoreResult.gamesDownloaded}\nGames lỗi: ${restoreResult.gamesFailed}\nSaves khôi phục: ${restoreResult.savesRestored}`
+            ? `Saves khôi phục: ${restoreResult.savesRestored}`
             : ''
         }
         confirmText="OK"

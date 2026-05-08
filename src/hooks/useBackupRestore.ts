@@ -1,14 +1,10 @@
 import { DownloadState } from '@/hooks/useDownloadManager';
-import { ApiGame } from '@/hooks/useGameApi';
+import { useBackupRestoreStore } from '@/stores/backupRestoreStore';
 import {
-    BackupInfo,
-    BackupManifest,
-    BackupRestoreState,
-    RestoreError,
-    RestoreResult,
-    STORAGE_KEYS
+  BackupInfo,
+  BackupRestoreState,
+  RestoreResult
 } from '@/types/backup';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useState } from 'react';
 import * as AppLauncherModule from '../../modules/app-launcher';
 
@@ -27,43 +23,27 @@ import * as AppLauncherModule from '../../modules/app-launcher';
  * - Sequential game download during restore
  */
 export const useBackupRestore = () => {
-  // === State Management ===
-  
-  /**
-   * isBackingUp: Tracks whether a backup operation is currently in progress
-   * **Validates: Requirement 8.1** - Progress reporting during backup
-   */
-  const [isBackingUp, setIsBackingUp] = useState<boolean>(false);
-
-  /**
-   * isRestoring: Tracks whether a restore operation is currently in progress
-   * **Validates: Requirement 8.2** - Progress reporting during restore
-   */
-  const [isRestoring, setIsRestoring] = useState<boolean>(false);
-
-  /**
-   * progress: Current operation progress from 0 to 1
-   * **Validates: Requirement 8.3** - Progress percentage tracking
-   */
-  const [progress, setProgress] = useState<number>(0);
-
-  /**
-   * currentOperation: Human-readable message describing current operation
-   * Example: "Downloading 3/10: Pokemon FireRed"
-   * **Validates: Requirement 8.4** - Current operation status message
-   */
-  const [currentOperation, setCurrentOperation] = useState<string>('');
+  // === Global State from Zustand ===
+  const {
+    isBackingUp,
+    isRestoring,
+    progress,
+    currentOperation,
+    error,
+    setIsBackingUp,
+    setIsRestoring,
+    setProgress,
+    setCurrentOperation,
+    setError,
+    updateProgress,
+    resetState,
+  } = useBackupRestoreStore();
 
   /**
    * backupList: List of available backup files with metadata
    * **Validates: Requirement 8.5** - Backup history management
    */
   const [backupList, setBackupList] = useState<BackupInfo[]>([]);
-
-  /**
-   * error: Error message if an operation fails, null otherwise
-   */
-  const [error, setError] = useState<string | null>(null);
 
   // === Computed State ===
   
@@ -82,25 +62,6 @@ export const useBackupRestore = () => {
   // === State Update Helpers ===
 
   /**
-   * Reset all state to initial values
-   */
-  const resetState = useCallback(() => {
-    setIsBackingUp(false);
-    setIsRestoring(false);
-    setProgress(0);
-    setCurrentOperation('');
-    setError(null);
-  }, []);
-
-  /**
-   * Update progress and operation message
-   */
-  const updateProgress = useCallback((newProgress: number, message: string) => {
-    setProgress(newProgress);
-    setCurrentOperation(message);
-  }, []);
-
-  /**
    * Set error state and reset operation flags
    */
   const setErrorState = useCallback((errorMessage: string) => {
@@ -109,7 +70,7 @@ export const useBackupRestore = () => {
     setIsRestoring(false);
     setProgress(0);
     setCurrentOperation('');
-  }, []);
+  }, [setError, setIsBackingUp, setIsRestoring, setProgress, setCurrentOperation]);
 
   // === Public API (to be implemented in subsequent tasks) ===
 
@@ -130,21 +91,14 @@ export const useBackupRestore = () => {
       setError(null);
       setIsBackingUp(true);
       setProgress(0);
-      setCurrentOperation('Reading games list...');
-
-      // Read games list from AsyncStorage
-      const gamesJson = await AsyncStorage.getItem(STORAGE_KEYS.DOWNLOADED_GAMES);
-      
-      if (!gamesJson) {
-        throw new Error('No games found in storage. Cannot create backup.');
-      }
+      setCurrentOperation('Creating save backup...');
 
       // Update progress
-      setProgress(0.2);
+      setProgress(0.5);
       setCurrentOperation('Creating backup archive...');
 
-      // Call native module to create backup
-      const result = await AppLauncherModule.createBackup(includeCovers, gamesJson);
+      // Call native module to create backup (saves only, no games)
+      const result = await AppLauncherModule.createBackup(includeCovers, '[]');
 
       // Update progress to complete
       setProgress(1);
@@ -161,7 +115,7 @@ export const useBackupRestore = () => {
       setErrorState(errorMessage);
       throw error;
     }
-  }, [resetState, setErrorState]);
+  }, [resetState, setErrorState, setError, setIsBackingUp, setProgress, setCurrentOperation]);
 
   /**
    * Restore from a backup file
@@ -175,11 +129,6 @@ export const useBackupRestore = () => {
    */
   const restoreBackup = useCallback(async (
     backupFilePath: string,
-    downloadManager: {
-      startDownload: (game: ApiGame, romDir: string, romExtensions: string[]) => void;
-      downloads: Map<number, DownloadState>;
-      downloadedGameIds: Set<number>;
-    },
     onProgress?: (progress: number, message: string) => void
   ): Promise<RestoreResult> => {
     try {
@@ -189,11 +138,8 @@ export const useBackupRestore = () => {
       setProgress(0);
       setCurrentOperation('Validating backup file...');
 
-      // Call native module to extract saves and manifest
+      // Call native module to extract saves only (no game downloads)
       const nativeResult = await AppLauncherModule.restoreBackup(backupFilePath);
-      
-      // Parse the manifest
-      const manifest: BackupManifest = JSON.parse(nativeResult.manifest);
       
       // Update progress
       const progressUpdate = (prog: number, msg: string) => {
@@ -204,196 +150,30 @@ export const useBackupRestore = () => {
         }
       };
 
-      progressUpdate(0.1, `Restored ${nativeResult.savesRestored} saves`);
-
-      // Read current downloaded games from AsyncStorage
-      const currentGamesJson = await AsyncStorage.getItem(STORAGE_KEYS.DOWNLOADED_GAMES);
-      const currentGames: ApiGame[] = currentGamesJson ? JSON.parse(currentGamesJson) : [];
-      const currentGameIds = new Set(currentGames.map(g => g.id));
-
-      // Also check downloadedGameIds from download manager (in-memory state)
-      const allDownloadedIds = new Set([...currentGameIds, ...downloadManager.downloadedGameIds]);
-
-      // Filter games that need to be downloaded (not already on device)
-      // Check both AsyncStorage AND physical ROM files on disk
-      const gamesNeedingDownload: typeof manifest.games = [];
-      
-      for (const game of manifest.games) {
-        // Skip if already in AsyncStorage or download manager
-        if (allDownloadedIds.has(game.id)) {
-          continue;
-        }
-        
-        // Check if ROM file exists on disk (in case AsyncStorage was cleared but files remain)
-        const platformConfig = getPlatformConfig(game.platform);
-        
-        // We need to fetch game from API to get filename for checking
-        try {
-          const { fetchGameById } = await import('@/hooks/useGameApi');
-          const apiGame = await fetchGameById(game.id);
-          
-          if (apiGame) {
-            const romDir = `${platformConfig.baseDir}/${apiGame.filename.replace(/\.zip$/i, '')}`;
-            const romExists = await AppLauncherModule.fileExists(romDir);
-            
-            if (romExists) {
-              // ROM exists on disk, skip download
-              console.log(`ROM already exists for ${game.name}, skipping download`);
-              continue;
-            }
-          }
-        } catch (error) {
-          console.warn(`Could not check ROM existence for ${game.name}:`, error);
-        }
-        
-        // Game needs to be downloaded
-        gamesNeedingDownload.push(game);
-      }
-
-      // Initialize result counters
-      let gamesDownloaded = 0;
-      let gamesFailed = 0;
-      const errors: RestoreError[] = [];
-
-      // If no games to download, return early
-      if (gamesNeedingDownload.length === 0) {
-        progressUpdate(1, 'Restore complete - all games already downloaded');
-        
-        setTimeout(() => {
-          resetState();
-        }, 1000);
-
-        return {
-          gamesDownloaded: 0,
-          gamesFailed: 0,
-          savesRestored: nativeResult.savesRestored,
-          coversRestored: nativeResult.coversRestored,
-          errors: [],
-        };
-      }
-
-      // Sequential download: download games one at a time
-      const totalGames = gamesNeedingDownload.length;
-      
-      for (let i = 0; i < gamesNeedingDownload.length; i++) {
-        const gameMetadata = gamesNeedingDownload[i];
-        const gameIndex = i + 1;
-
-        // Update progress message
-        progressUpdate(
-          0.1 + (i / totalGames) * 0.9,
-          `Fetching ${gameIndex}/${totalGames}: ${gameMetadata.name}`
-        );
-
-        try {
-          // Try to fetch game by ID first (for games downloaded from API with positive IDs)
-          let apiGame: ApiGame | null = null;
-          
-          if (gameMetadata.id > 0) {
-            // Positive ID - try fetching by ID
-            const { fetchGameById } = await import('@/hooks/useGameApi');
-            apiGame = await fetchGameById(gameMetadata.id);
-          }
-          
-          // If not found by ID (negative ID or API changed), try searching by filename
-          if (!apiGame) {
-            const { fetchGameByFilename } = await import('@/hooks/useGameApi');
-            apiGame = await fetchGameByFilename(gameMetadata.filename, gameMetadata.platform);
-          }
-          
-          if (!apiGame) {
-            // Game not found in API - skip it (might be deleted or imported game)
-            console.warn(`Game ${gameMetadata.name} not found in API, skipping download`);
-            gamesFailed++;
-            errors.push({
-              gameId: gameMetadata.id,
-              gameName: gameMetadata.name,
-              error: 'Game không còn tồn tại trong API (có thể đã bị xóa)',
-            });
-            continue;
-          }
-          
-          // Validate downloadUrl
-          if (!apiGame.downloadUrl || 
-              (!apiGame.downloadUrl.startsWith('http://') && !apiGame.downloadUrl.startsWith('https://'))) {
-            throw new Error('Invalid download URL from API');
-          }
-
-          // Update progress message
-          progressUpdate(
-            0.1 + (i / totalGames) * 0.9,
-            `Downloading ${gameIndex}/${totalGames}: ${gameMetadata.name}`
-          );
-
-          // Determine ROM directory and extensions based on platform
-          const platformConfig = getPlatformConfig(gameMetadata.platform);
-          const romDir = `${platformConfig.baseDir}/${apiGame.filename.replace(/\.zip$/i, '')}`;
-
-          // Start the download
-          downloadManager.startDownload(apiGame, romDir, platformConfig.romExtensions);
-
-          // Wait for download to complete
-          const downloadSuccess = await waitForDownloadComplete(
-            gameMetadata.id,
-            downloadManager.downloads,
-            (prog) => {
-              // Update progress with download percentage
-              const overallProgress = 0.1 + (i / totalGames) * 0.9 + (prog / totalGames) * 0.9;
-              progressUpdate(
-                overallProgress,
-                `Downloading ${gameIndex}/${totalGames}: ${gameMetadata.name} (${Math.round(prog * 100)}%)`
-              );
-            }
-          );
-
-          if (downloadSuccess) {
-            gamesDownloaded++;
-          } else {
-            // Download failed
-            gamesFailed++;
-            const downloadState = downloadManager.downloads.get(gameMetadata.id);
-            const errorMsg = downloadState?.error || 'Download failed';
-            errors.push({
-              gameId: gameMetadata.id,
-              gameName: gameMetadata.name,
-              error: errorMsg,
-            });
-            console.error(`Failed to download game ${gameMetadata.name}: ${errorMsg}`);
-          }
-        } catch (error) {
-          // Unexpected error during download
-          gamesFailed++;
-          const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-          errors.push({
-            gameId: gameMetadata.id,
-            gameName: gameMetadata.name,
-            error: errorMsg,
-          });
-          console.error(`Error downloading game ${gameMetadata.name}:`, error);
-        }
-      }
+      progressUpdate(0.5, `Restored ${nativeResult.savesRestored} saves`);
 
       // Final progress update
-      progressUpdate(1, `Restore complete: ${gamesDownloaded} downloaded, ${gamesFailed} failed`);
+      progressUpdate(1, `Restore complete: ${nativeResult.savesRestored} saves restored`);
 
       // Reset state after a brief delay
       setTimeout(() => {
+        console.log('Resetting restore state after completion');
         resetState();
       }, 2000);
 
       return {
-        gamesDownloaded,
-        gamesFailed,
+        gamesDownloaded: 0,
+        gamesFailed: 0,
         savesRestored: nativeResult.savesRestored,
         coversRestored: nativeResult.coversRestored,
-        errors,
+        errors: [],
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred during restore';
       setErrorState(errorMessage);
       throw error;
     }
-  }, [resetState, setErrorState]);
+  }, [resetState, setErrorState, setError, setIsRestoring, setProgress, setCurrentOperation]);
 
   /**
    * Helper function to get platform-specific configuration

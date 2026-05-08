@@ -22,6 +22,7 @@ class TouchControlsOverlay @JvmOverloads constructor(
     var isNDS: Boolean = false
     var is3DS: Boolean = false
     var isGBA: Boolean = false
+    var isPSP: Boolean = false
 
     private val prefs: SharedPreferences = context.getSharedPreferences("alga_controls", Context.MODE_PRIVATE)
     private var buttonScale: Float = prefs.getFloat("button_scale", 1.0f)

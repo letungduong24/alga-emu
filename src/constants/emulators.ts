@@ -1,4 +1,3 @@
-import { ImageSourcePropType } from 'react-native';
 
 export interface Emulator {
   id: string;
@@ -43,5 +42,14 @@ export const EMULATORS: Emulator[] = [
     coreUrl: `${CORE_BASE_URL}mgba_libretro_android.so.zip`,
     romExtension: ['.gba'],
     image: require('@/assets/emulators/gba.png'),
+  },
+  {
+    id: 'ppsspp',
+    title: 'PlayStation Portable',
+    description: 'Core PPSSPP - PSP tốc độ cao',
+    coreName: 'ppsspp_libretro_android.so',
+    coreUrl: `${CORE_BASE_URL}ppsspp_libretro_android.so.zip`,
+    romExtension: ['.iso', '.cso', '.pbp', '.elf', '.prx'],
+    image: require('@/assets/emulators/psp.png'),
   }
 ];

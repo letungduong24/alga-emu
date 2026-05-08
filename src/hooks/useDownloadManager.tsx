@@ -1,22 +1,21 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
-import { AppState, AppStateStatus, ToastAndroid, Platform } from 'react-native';
+import { ApiGame } from '@/hooks/useGameApi';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useQueryClient } from '@tanstack/react-query';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { AppState, AppStateStatus, Platform, ToastAndroid } from 'react-native';
 import { unzip } from 'react-native-zip-archive';
 import {
-  createDirectory,
-  listFiles,
-  enqueueDownload,
-  getDownloadProgress,
-  cancelNativeDownload,
-  deleteFileOrDir,
-  fileExists,
-  DownloadProgress,
-  extractNdsIcon,
-  extract3dsIcon,
+    cancelNativeDownload,
+    createDirectory,
+    deleteFileOrDir,
+    DownloadProgress,
+    enqueueDownload,
+    extract3dsIcon,
+    extractNdsIcon,
+    fileExists,
+    getDownloadProgress,
+    listFiles,
 } from '../../modules/app-launcher';
-import * as FileSystem from 'expo-file-system/legacy';
-import { useQueryClient } from '@tanstack/react-query';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ApiGame } from '@/hooks/useGameApi';
 
 // === Types ===
 export type DownloadStatus = 'idle' | 'downloading' | 'extracting' | 'done' | 'error' | 'queued';
@@ -477,7 +476,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
 
   // === Scan local filesystem for library (no API needed) ===
   const scanLocalLibrary = useCallback(async (emulatorId: string, romExtensions: string[]) => {
-    const platformMap: Record<string, string> = { melonds: 'nds', desmume: 'nds', citra: '3ds', mgba: 'gba' };
+    const platformMap: Record<string, string> = { melonds: 'nds', desmume: 'nds', citra: '3ds', mgba: 'gba', ppsspp: 'psp' };
     const platform = platformMap[emulatorId] ?? '';
 
     try {

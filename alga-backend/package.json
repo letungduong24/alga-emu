@@ -8,7 +8,8 @@
     "dev": "ts-node src/server.ts",
     "crawl": "ts-node src/crawler.ts",
     "crawl:3ds": "ts-node src/crawl-3ds.ts",
-    "crawl:gba": "ts-node src/crawl-gba.ts"
+    "crawl:gba": "ts-node src/crawl-gba.ts",
+    "crawl:psp": "ts-node src/crawl-psp.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

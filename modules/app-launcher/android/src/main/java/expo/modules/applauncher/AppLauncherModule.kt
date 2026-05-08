@@ -634,7 +634,7 @@ class AppLauncherModule : Module() {
               timeZone = java.util.TimeZone.getTimeZone("UTC")
             }.format(Date(backupFile.lastModified()))
             
-            // Try to peek into manifest.json to get game count
+            // Try to peek into manifest.json to get save count
             var gameCount = 0
             try {
               val zipIn = java.util.zip.ZipInputStream(FileInputStream(backupFile))
@@ -647,10 +647,10 @@ class AppLauncherModule : Module() {
                   val manifestJson = String(manifestBytes, Charsets.UTF_8)
                   val manifest = JSONObject(manifestJson)
                   
-                  // Extract game count from games array
-                  if (manifest.has("games")) {
-                    val gamesArray = manifest.getJSONArray("games")
-                    gameCount = gamesArray.length()
+                  // Extract save count from saveFiles array (not games)
+                  if (manifest.has("saveFiles")) {
+                    val saveFilesArray = manifest.getJSONArray("saveFiles")
+                    gameCount = saveFilesArray.length()
                   }
                   
                   zipIn.closeEntry()
@@ -674,7 +674,7 @@ class AppLauncherModule : Module() {
               "gameCount" to gameCount
             ))
             
-            android.util.Log.d("AppLauncher", "Found backup: $fileName ($fileSize bytes, $gameCount games)")
+            android.util.Log.d("AppLauncher", "Found backup: $fileName ($fileSize bytes, $gameCount saves)")
           } catch (e: Exception) {
             // Skip this file if we can't read its metadata
             android.util.Log.w("AppLauncher", "Skipping backup file ${backupFile.name}: ${e.message}")

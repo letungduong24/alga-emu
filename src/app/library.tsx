@@ -6,7 +6,7 @@ import { ApiGame } from '@/hooks/useGameApi';
 import { useGameImport } from '@/hooks/useGameImport';
 import * as DocumentPicker from 'expo-document-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Download, Grid3x3, List, MoreVertical, Play, Plus, Search, Trash2, Upload, X } from 'lucide-react-native';
+import { ArrowLeft, Download, Grid3x3, List, MoreVertical, Play, Plus, Search, Trash2, Upload, Wrench, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -76,11 +76,13 @@ export default function LibraryScreen() {
   const [actionTarget, setActionTarget] = useState<ApiGame | null>(null);
   const [exportAlert, setExportAlert] = useState<{ title: string; message: string } | null>(null);
   const [importAlert, setImportAlert] = useState<{ title: string; message: string } | null>(null);
+  const [showFixMenu, setShowFixMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const emulatorGames = useMemo(() => {
     return downloadedGames.filter((g) => {
-      const platformMap: Record<string, string> = { melonds: 'nds', desmume: 'nds', citra: '3ds', mgba: 'gba' };
+      const platformMap: Record<string, string> = { melonds: 'nds', desmume: 'nds', citra: '3ds', mgba: 'gba', ppsspp: 'psp' };
       const platform = platformMap[emulatorId ?? ''] ?? '';
       return g.platform === platform;
     });
@@ -267,6 +269,72 @@ export default function LibraryScreen() {
     setImportPending(null);
   }, [importPending, emulatorId]);
 
+  // Fix Tomodachi Life - Download MiiFix using download manager
+  const handleFixTomodachiLife = useCallback(async () => {
+    setShowFixMenu(false);
+    
+    try {
+      const { createDirectory, fileExists } = require('../../modules/app-launcher');
+      
+      console.log('[Fix Tomodachi] Starting...');
+      
+      // Check if MiiFix already exists in library
+      const miiFixExists = downloadedGames.some((g) => g.id === -999999);
+      
+      // Check if MiiFix.3ds file exists
+      const citraRomDir = '/storage/emulated/0/Alga/roms/citra/MiiFix/';
+      const destRomPath = `${citraRomDir}MiiFix.3ds`;
+      const fileAlreadyExists = await fileExists(destRomPath);
+      
+      if (miiFixExists && fileAlreadyExists) {
+        // MiiFix already installed
+        setExportAlert({ 
+          title: 'MiiFix đã có sẵn', 
+          message: `MiiFix đã có trong thư viện.\n\nHƯỚNG DẪN:\n1. Mở game "MiiFix" trong thư viện\n2. Chạy MiiFix để fix lỗi Mii\n3. Sau đó mở Tomodachi Life để tạo Mii` 
+        });
+        return;
+      }
+      
+      // Create MiiFix game object
+      const miiFixGame: ApiGame = {
+        id: -999999, // Special ID for MiiFix
+        name: 'MiiFix',
+        filename: 'MiiFix.zip',
+        platform: '3ds',
+        downloadUrl: 'https://duongle.dev/MiiFix.3ds',
+        size: 0,
+      };
+      
+      // Ensure directory exists
+      await createDirectory(citraRomDir);
+      
+      // Start download using download manager
+      console.log('[Fix Tomodachi] Starting download via download manager...');
+      downloadManager.startDownload(
+        miiFixGame,
+        citraRomDir,
+        ['.3ds', '.cci', '.cxi', '.3dsx']
+      );
+      
+      // Refresh library to show MiiFix
+      if (emulator) {
+        scanLocalLibrary(emulator.id, emulator.romExtension);
+      }
+      
+      // Show info
+      setExportAlert({ 
+        title: 'Đang tải MiiFix', 
+        message: `MiiFix đang được tải xuống.\n\nSau khi tải xong:\n1. Mở game "MiiFix" trong thư viện\n2. Chạy MiiFix để fix lỗi Mii\n3. Sau đó mở Tomodachi Life để tạo Mii` 
+      });
+      
+    } catch (e: any) {
+      console.error('[Fix Tomodachi] Error:', e);
+      setExportAlert({ title: 'Lỗi tải MiiFix', message: e.message });
+    }
+  }, [emulator, scanLocalLibrary, downloadManager, downloadedGames]);
+
+
+
   // Handle game import
   const handleGameImport = useCallback(async () => {
     if (!emulator) return;
@@ -365,12 +433,14 @@ export default function LibraryScreen() {
           >
             {viewMode === 'carousel' ? <Grid3x3 size={20} color="white" /> : <List size={20} color="white" />}
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleGameImport}
-            className="w-10 h-10 rounded-full bg-white/10 items-center justify-center"
-          >
-            <Upload size={20} color={PRIMARY} />
-          </TouchableOpacity>
+          {emulatorId === 'citra' && (
+            <TouchableOpacity
+              onPress={() => setShowMoreMenu(true)}
+              className="p-2"
+            >
+              <MoreVertical size={20} color="white" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             onPress={() => router.push({ pathname: '/games', params: { emulatorId: emulator.id } })}
             className="px-3 py-2 rounded-full flex-row items-center"
@@ -655,6 +725,75 @@ export default function LibraryScreen() {
           </Text>
         </View>
       )}
+      
+      {/* Fix Menu Modal */}
+      <Modal visible={showFixMenu} transparent animationType="fade" onRequestClose={() => setShowFixMenu(false)}>
+        <TouchableOpacity
+          className="flex-1 justify-end"
+          activeOpacity={1}
+          onPress={() => setShowFixMenu(false)}
+          style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+        >
+          <View className="bg-[#1a1a2e] rounded-t-3xl px-6 pt-6 pb-8" style={{ paddingBottom: insets.bottom + 24 }}>
+            <Text className="text-white text-lg font-bold mb-1">Fix lỗi game</Text>
+            <Text className="text-white/40 text-xs mb-5">Chọn lỗi cần fix</Text>
+
+            <TouchableOpacity
+              onPress={handleFixTomodachiLife}
+              className="flex-row items-center py-4"
+            >
+              <View className="w-10 h-10 rounded-xl items-center justify-center mr-4 bg-amber-500/20">
+                <Wrench size={18} color="#fbbf24" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-white font-semibold text-base">Tomodachi Life - Mii Fix</Text>
+                <Text className="text-white/40 text-xs">Fix lỗi không tạo được Mii</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      
+      {/* More Menu Modal (for Citra) */}
+      <Modal visible={showMoreMenu} transparent animationType="fade" onRequestClose={() => setShowMoreMenu(false)}>
+        <TouchableOpacity
+          className="flex-1 justify-end"
+          activeOpacity={1}
+          onPress={() => setShowMoreMenu(false)}
+          style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+        >
+          <View className="bg-[#1a1a2e] rounded-t-3xl px-6 pt-6 pb-8" style={{ paddingBottom: insets.bottom + 24 }}>
+            <Text className="text-white text-lg font-bold mb-1">Thêm</Text>
+            <Text className="text-white/40 text-xs mb-5">Chọn hành động</Text>
+
+            <TouchableOpacity
+              onPress={() => { setShowMoreMenu(false); handleGameImport(); }}
+              className="flex-row items-center py-4 border-b border-white/5"
+            >
+              <View className="w-10 h-10 rounded-xl items-center justify-center mr-4 bg-blue-500/20">
+                <Upload size={18} color="#3b82f6" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-white font-semibold text-base">Import Game</Text>
+                <Text className="text-white/40 text-xs">Nhập game từ file ZIP</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => { setShowMoreMenu(false); setShowFixMenu(true); }}
+              className="flex-row items-center py-4"
+            >
+              <View className="w-10 h-10 rounded-xl items-center justify-center mr-4 bg-amber-500/20">
+                <Wrench size={18} color="#fbbf24" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-white font-semibold text-base">Fix</Text>
+                <Text className="text-white/40 text-xs">Fix lỗi game Citra</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }

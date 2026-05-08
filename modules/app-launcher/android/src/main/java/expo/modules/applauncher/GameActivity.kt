@@ -51,6 +51,7 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener, Sens
     private var isMelonDS = true
     var is3DS = false
     var isGBA = false
+    var isPSP = false
     var currentLayoutIndex = 0
     var currentStateSlot = 0
     private var romBaseName: String = ""
@@ -194,6 +195,8 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener, Sens
                 corePath.contains("vba", ignoreCase = true) ||
                 corePath.contains("gpsp", ignoreCase = true)
 
+        val isPSP = corePath.contains("ppsspp", ignoreCase = true)
+
         val hasDualScreen = isNDS || is3DS
 
         val viewData = GLRetroViewData(this).apply {
@@ -235,6 +238,16 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener, Sens
                     Variable("mgba_solar_sensor_level", "0"),
                     Variable("mgba_sgb_borders", "OFF"),
                     Variable("mgba_color_correction", "Game Boy Advance"),
+                )
+            }
+            if (isPSP) {
+                variables = arrayOf(
+                    Variable("ppsspp_internal_resolution", "960x544"),  // 2x native
+                    Variable("ppsspp_button_preference", "cross"),
+                    Variable("ppsspp_fast_memory", "enabled"),
+                    Variable("ppsspp_rendering_mode", "Automatic"),
+                    Variable("ppsspp_auto_frameskip", "disabled"),
+                    Variable("ppsspp_texture_scaling_level", "1"),  // No upscaling by default
                 )
             }
         }
@@ -291,6 +304,7 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener, Sens
         touchControls!!.isNDS = isNDS
         touchControls!!.is3DS = is3DS
         touchControls!!.isGBA = isGBA
+        touchControls!!.isPSP = isPSP
         container.addView(touchControls, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
@@ -500,6 +514,7 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener, Sens
             val saveExt = when {
                 isGBA -> ".srm"
                 isMelonDS -> ".sav"
+                isPSP -> ".ppst"  // PSP save state extension
                 else -> ".dsv"
             }
             val sramFile = java.io.File(savesDir, "${romBaseName}${saveExt}")
@@ -526,6 +541,7 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener, Sens
                 val saveExt = when {
                     isGBA -> ".srm"
                     isMelonDS -> ".sav"
+                    isPSP -> ".ppst"
                     else -> ".dsv"
                 }
                 val sramFile = java.io.File(savesDir, "${romBaseName}${saveExt}")
