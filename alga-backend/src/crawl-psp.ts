@@ -4,7 +4,7 @@ import { AppDataSource } from "./data-source";
 import { Game } from "./entity/Game";
 
 // Archive.org PSP collection
-const ARCHIVE_COLLECTION = "psp-games";
+const ARCHIVE_COLLECTION = "PSNCollectionByGhostware";
 const METADATA_URL = `https://archive.org/metadata/${ARCHIVE_COLLECTION}`;
 const ARCHIVE_BASE = `https://archive.org/download/${ARCHIVE_COLLECTION}`;
 
