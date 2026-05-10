@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Alert } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { createDirectory, fileExists } from '../../modules/app-launcher';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert } from 'react-native';
 import { unzip } from 'react-native-zip-archive';
+import { createDirectory, fileExists } from '../../modules/app-launcher';
 
 const CORE_DIR = '/storage/emulated/0/Alga/cores';
 
@@ -38,28 +38,58 @@ export const useCore = (coreName: string, coreUrl: string) => {
 
       await createDirectory(CORE_DIR);
 
-      const zipUri = `${FileSystem.cacheDirectory}${coreName}.zip`;
+      // Check if this is a direct .so file (like RPG XP core)
+      const isDirectSoFile = coreUrl.endsWith('.so');
+      
+      if (isDirectSoFile) {
+        // Direct .so file - download to cache first, then move
+        const tempUri = `${FileSystem.cacheDirectory}${coreName}`;
+        
+        const downloadResumable = FileSystem.createDownloadResumable(
+          coreUrl,
+          tempUri,
+          {},
+          (dp) => setProgress(dp.totalBytesWritten / dp.totalBytesExpectedToWrite * 0.9)
+        );
 
-      const downloadResumable = FileSystem.createDownloadResumable(
-        coreUrl,
-        zipUri,
-        {},
-        (dp) => setProgress(dp.totalBytesWritten / dp.totalBytesExpectedToWrite * 0.9)
-      );
-
-      const result = await downloadResumable.downloadAsync();
-
-      if (result) {
-        setProgress(0.95);
-        await unzip(result.uri, CORE_DIR);
-        await FileSystem.deleteAsync(zipUri, { idempotent: true });
-
-        const exists = await fileExists(corePath);
-        if (exists) {
-          setIsCoreReady(true);
+        const result = await downloadResumable.downloadAsync();
+        
+        if (result) {
+          // Move from cache to final location using native copyFile
+          const { copyFile } = require('../../modules/app-launcher');
+          await copyFile(result.uri.replace('file://', ''), corePath);
+          
+          // Clean up temp file
+          await FileSystem.deleteAsync(tempUri, { idempotent: true });
+          
           setProgress(1);
-        } else {
-          Alert.alert('Lỗi', 'Không tìm thấy core sau khi giải nén.');
+          setIsCoreReady(true);
+        }
+      } else {
+        // ZIP file - download to cache then extract
+        const downloadUri = `${FileSystem.cacheDirectory}${coreName}.zip`;
+        
+        const downloadResumable = FileSystem.createDownloadResumable(
+          coreUrl,
+          downloadUri,
+          {},
+          (dp) => setProgress(dp.totalBytesWritten / dp.totalBytesExpectedToWrite * 0.9)
+        );
+
+        const result = await downloadResumable.downloadAsync();
+
+        if (result) {
+          setProgress(0.95);
+          await unzip(result.uri, CORE_DIR);
+          await FileSystem.deleteAsync(downloadUri, { idempotent: true });
+
+          const exists = await fileExists(corePath);
+          if (exists) {
+            setIsCoreReady(true);
+            setProgress(1);
+          } else {
+            Alert.alert('Lỗi', 'Không tìm thấy core sau khi giải nén.');
+          }
         }
       }
     } catch (error) {

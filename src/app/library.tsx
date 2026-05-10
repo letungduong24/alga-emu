@@ -9,22 +9,22 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft, Download, Grid3x3, List, MoreVertical, Play, Plus, Search, Trash2, Upload, Wrench, X } from 'lucide-react-native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  FlatList, Image,
-  ImageBackground,
-  Modal,
-  StatusBar,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  useWindowDimensions,
-  View
+    ActivityIndicator,
+    FlatList, Image,
+    ImageBackground,
+    Modal,
+    StatusBar,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    useWindowDimensions,
+    View
 } from 'react-native';
 import Animated, {
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring
+    FadeInDown,
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { exportSave, fileExists, hasSave, importSave, launchGame } from '../../modules/app-launcher';
@@ -130,7 +130,7 @@ export default function LibraryScreen() {
       return dotIdx > 0 ? fileName.substring(0, dotIdx) : fileName;
     }
     // Fallback to zip name
-    return game.filename.replace(/\.zip$/i, '');
+    return game.filename.replace(/\.zip$/i, '').replace(/\.(iso|cso|pbp)$/i, '');
   }, [getRomPath]);
 
   // Play game
@@ -141,7 +141,7 @@ export default function LibraryScreen() {
 
     let rom = getRomPath(target.id);
     if (!rom) {
-      const gameFolder = target.filename.replace(/\.zip$/i, '');
+      const gameFolder = target.filename.replace(/\.zip$/i, '').replace(/\.(iso|cso|pbp)$/i, '');
       const romDir = `/storage/emulated/0/Alga/roms/${emulator.id}/${gameFolder}`;
       const { listFiles: lf } = require('../../modules/app-launcher');
       const files = await lf(romDir);
@@ -384,7 +384,7 @@ export default function LibraryScreen() {
             <TouchableOpacity onPress={() => router.back()} className="mr-3 p-2">
               <ArrowLeft size={22} color="white" />
             </TouchableOpacity>
-            <Text className="text-white text-xl font-bold">{emulator.title}</Text>
+            <Text className="text-white text-xl font-bold flex-1" numberOfLines={1}>{emulator.title}</Text>
           </View>
           <Animated.View entering={FadeInDown.duration(600)} className="flex-1 items-center justify-center px-8">
             <Text style={{ fontSize: 64 }} className="mb-4">🎮</Text>
@@ -417,11 +417,11 @@ export default function LibraryScreen() {
   const renderHeader = () => (
     <>
       <View style={{ paddingTop: insets.top }} className="flex-row items-center justify-between px-5 py-3 z-10">
-        <View className="flex-row items-center flex-shrink">
+        <View className="flex-row items-center flex-1 mr-2">
           <TouchableOpacity onPress={() => router.back()} className="mr-3 p-2">
             <ArrowLeft size={22} color="white" />
           </TouchableOpacity>
-          <Text className="text-white text-xl font-bold" numberOfLines={1}>{emulator.title}</Text>
+          <Text className="text-white text-xl font-bold flex-1" numberOfLines={1}>{emulator.title}</Text>
         </View>
         <View className="flex-row items-center gap-x-2 flex-shrink-0">
           <TouchableOpacity onPress={() => setShowSearch(!showSearch)} className="p-2">

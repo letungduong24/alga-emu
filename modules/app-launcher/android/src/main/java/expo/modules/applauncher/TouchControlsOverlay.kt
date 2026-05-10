@@ -119,6 +119,23 @@ class TouchControlsOverlay @JvmOverloads constructor(
 
     private val menuButton = VButton("menu", "⚙", -1)
 
+    // Update button labels based on platform
+    private fun updateButtonLabels() {
+        if (isPSP) {
+            // PSP: △ ○ ✕ □
+            gameButtons.find { it.id == "y" }?.label = "△"  // Triangle (top)
+            gameButtons.find { it.id == "a" }?.label = "○"  // Circle (right)
+            gameButtons.find { it.id == "b" }?.label = "✕"  // Cross (bottom)
+            gameButtons.find { it.id == "x" }?.label = "□"  // Square (left)
+        } else {
+            // Default: A B X Y
+            gameButtons.find { it.id == "a" }?.label = "A"
+            gameButtons.find { it.id == "b" }?.label = "B"
+            gameButtons.find { it.id == "x" }?.label = "X"
+            gameButtons.find { it.id == "y" }?.label = "Y"
+        }
+    }
+
     data class MenuItem(val id: String, var label: String, var bounds: RectF = RectF())
 
     private val speedItems = listOf(MenuItem("s1", "1×"), MenuItem("s2", "2×"), MenuItem("s4", "4×"))

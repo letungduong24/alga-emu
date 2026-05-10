@@ -1,22 +1,22 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import {
-  View,
-  Text,
-  FlatList,
-  StatusBar,
-  ImageBackground,
-  TouchableOpacity,
-  TextInput,
-  ActivityIndicator,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { EMULATORS } from '@/constants/emulators';
-import { ArrowLeft, Search, ChevronLeft, ChevronRight, Gamepad2 } from 'lucide-react-native';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
-import { useGameApi } from '@/hooks/useGameApi';
 import { ApiGameCard } from '@/components/ApiGameCard';
+import { EMULATORS } from '@/constants/emulators';
 import { useDownloadManager } from '@/hooks/useDownloadManager';
+import { useGameApi } from '@/hooks/useGameApi';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ArrowLeft, ChevronLeft, ChevronRight, Gamepad2, Search } from 'lucide-react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    FlatList,
+    ImageBackground,
+    StatusBar,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function StoreScreen() {
   const insets = useSafeAreaInsets();
@@ -32,6 +32,7 @@ export default function StoreScreen() {
     desmume: 'nds',
     citra: '3ds',
     mgba: 'gba',
+    ppsspp: 'psp',
   };
   const platform = platformMap[emulatorId ?? ''] ?? 'nds';
 

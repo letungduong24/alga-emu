@@ -3,18 +3,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus, Platform, ToastAndroid } from 'react-native';
-import { unzip } from 'react-native-zip-archive';
 import {
-    cancelNativeDownload,
-    createDirectory,
-    deleteFileOrDir,
-    DownloadProgress,
-    enqueueDownload,
-    extract3dsIcon,
-    extractNdsIcon,
-    fileExists,
-    getDownloadProgress,
-    listFiles,
+  cancelNativeDownload,
+  copyFile,
+  createDirectory,
+  deleteFileOrDir,
+  DownloadProgress,
+  enqueueDownload,
+  extract3dsIcon,
+  extractNdsIcon,
+  fileExists,
+  getDownloadProgress,
+  listFiles,
+  unzipRecursive
 } from '../../modules/app-launcher';
 
 // === Types ===
@@ -151,11 +152,23 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
   const findRomFile = useCallback(async (romDir: string, romExtensions: string[]): Promise<string | null> => {
     try {
       const files = await listFiles(romDir);
+      
+      // Standard ROM file search (ISO, CSO, PBP files)
       const romFile = files.find((f: string) => {
         const lower = f.toLowerCase();
         return romExtensions.some((ext) => lower.endsWith(ext));
       });
-      return romFile || null;
+      if (romFile) {
+        return romFile;
+      }
+      
+      // Fallback: Special handling for PSP folder structure (EBOOT.PBP in PSP_GAME)
+      const ebootFile = files.find((f: string) => f.toLowerCase().includes('psp_game') && f.toLowerCase().endsWith('eboot.pbp'));
+      if (ebootFile) {
+        return ebootFile;
+      }
+      
+      return null;
     } catch {
       return null;
     }
@@ -181,16 +194,45 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
     try {
       updateDownload(gameId, { status: 'extracting', progress: 0.95 });
       await createDirectory(meta.romDir);
-      await unzip(meta.zipPath, meta.romDir);
-
-      // Cleanup: delete the ZIP file after successful extraction
-      try {
-        await deleteFileOrDir(meta.zipPath);
-      } catch {}
+      
+      const downloadedFile = meta.zipPath;
+      const isZip = downloadedFile.toLowerCase().endsWith('.zip');
+      
+      if (isZip) {
+        // ZIP file: extract it
+        console.log(`[Download] Starting unzip: ${downloadedFile} -> ${meta.romDir}`);
+        await unzipRecursive(downloadedFile, meta.romDir);
+        console.log(`[Download] Unzip completed successfully`);
+        
+        // Delete ZIP after extraction
+        try {
+          await deleteFileOrDir(downloadedFile);
+          console.log(`[Download] Deleted ZIP: ${downloadedFile}`);
+        } catch (e) {
+          console.warn(`[Download] Failed to delete ZIP:`, e);
+        }
+      } else {
+        // ISO/CSO/PBP file: move directly to ROM folder
+        const filename = downloadedFile.split('/').pop() || 'game.iso';
+        const destPath = `${meta.romDir}/${filename}`;
+        console.log(`[Download] Moving ROM: ${downloadedFile} -> ${destPath}`);
+        
+        // Use native copyFile then delete source
+        await copyFile(downloadedFile, destPath);
+        await deleteFileOrDir(downloadedFile);
+        console.log(`[Download] ROM moved successfully`);
+      }
 
       await AsyncStorage.removeItem(`dl_native_${gameId}`);
+      await AsyncStorage.removeItem(`dl_native_${gameId}`);
 
+      console.log(`[Download] Finding ROM in: ${meta.romDir}`);
+      console.log(`[Download] ROM extensions: ${meta.romExtensions.join(', ')}`);
+      const files = await listFiles(meta.romDir);
+      console.log(`[Download] Files in folder:`, files);
       const rom = await findRomFile(meta.romDir, meta.romExtensions);
+      console.log(`[Download] ROM found: ${rom}`);
+      
       if (rom) {
         romPaths.current.set(gameId, rom);
         updateDownload(gameId, { status: 'done', progress: 1 });
@@ -218,13 +260,23 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
 
         queryClient.invalidateQueries({ queryKey: ['games'] });
       } else {
-        throw new Error('Không tìm thấy ROM sau khi giải nén');
+        console.error(`[Download] ROM not found after extraction`);
+        // List files in romDir for debugging
+        try {
+          const files = await listFiles(meta.romDir);
+          console.error(`[Download] Files in ${meta.romDir}:`, files.slice(0, 10));
+        } catch {}
+        throw new Error('Không tìm thấy ROM sau khi giải nén. Kiểm tra logcat để biết chi tiết.');
       }
     } catch (error: any) {
+      console.error(`[Download] Extraction failed:`, error);
       updateDownload(gameId, {
         status: 'error',
         error: error.message || 'Lỗi giải nén',
       });
+      
+      // Don't delete ZIP on error so user can manually extract
+      console.log(`[Download] ZIP preserved for manual extraction: ${meta.zipPath}`);
     }
   }, [updateDownload, findRomFile, queryClient, stopPolling, addToDownloaded]);
 
@@ -281,8 +333,37 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
     // Store game metadata for later
     gameMeta.current.set(gameId, game);
 
+    // Detect file extension from filename
+    const fileExt = game.filename.match(/\.(zip|iso|cso|pbp)$/i)?.[0] || '.zip';
+    
     // Download to public Downloads/Alga/ folder
-    const destSubPath = `Alga/game_${gameId}.zip`;
+    const destSubPath = `Alga/game_${gameId}${fileExt}`;
+    const downloadPath = `/storage/emulated/0/Download/${destSubPath}`;
+
+    // Check if file already exists in Downloads folder
+    const fileExists_ = await fileExists(downloadPath);
+    
+    if (fileExists_) {
+      // File already downloaded, skip download and go straight to extraction/move
+      setDownloads((prev) => {
+        const next = new Map(prev);
+        next.set(gameId, {
+          gameId,
+          gameName: game.name,
+          progress: 0.9,
+          status: 'extracting',
+          speed: 0,
+          retryCount: 0,
+        });
+        return next;
+      });
+
+      downloadMeta.current.set(gameId, { url: game.downloadUrl, romDir, romExtensions, zipPath: downloadPath });
+      
+      // Directly call extraction/move
+      handleDownloadComplete(gameId);
+      return;
+    }
 
     setDownloads((prev) => {
       const next = new Map(prev);
@@ -305,8 +386,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
         'Alga — Đang tải game...'
       );
 
-      const zipPath = result.filePath;
-      downloadMeta.current.set(gameId, { url: game.downloadUrl, romDir, romExtensions, zipPath });
+      downloadMeta.current.set(gameId, { url: game.downloadUrl, romDir, romExtensions, zipPath: result.filePath });
 
       await AsyncStorage.setItem(`dl_native_${gameId}`, JSON.stringify({
         nativeId: result.downloadId,
@@ -316,7 +396,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
         downloadUrl: game.downloadUrl,
         romDir,
         romExtensions,
-        zipPath,
+        zipPath: result.filePath,
       }));
 
       updateDownload(gameId, { nativeDownloadId: result.downloadId });
@@ -367,7 +447,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
   ) => {
     const found = new Set<number>();
     for (const game of games) {
-      const gameFolder = game.filename.replace(/\.zip$/i, '');
+      const gameFolder = game.filename.replace(/\.zip$/i, '').replace(/\.(iso|cso|pbp)$/i, '');
       const romDir = `${EXTERNAL_ROM_DIR}/${emulatorId}/${gameFolder}`;
       const rom = await findRomFile(romDir, romExtensions);
       if (rom) {
@@ -451,7 +531,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
   const deleteGame = useCallback(async (gameId: number, emulatorId: string) => {
     const game = downloadedGames.find((g) => g.id === gameId);
     if (game) {
-      const gameFolder = game.filename.replace(/\.zip$/i, '');
+      const gameFolder = game.filename.replace(/\.zip$/i, '').replace(/\.(iso|cso|pbp)$/i, '');
       const romDir = `${EXTERNAL_ROM_DIR}/${emulatorId}/${gameFolder}`;
       await deleteFileOrDir(romDir);
     }
@@ -478,6 +558,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
   const scanLocalLibrary = useCallback(async (emulatorId: string, romExtensions: string[]) => {
     const platformMap: Record<string, string> = { melonds: 'nds', desmume: 'nds', citra: '3ds', mgba: 'gba', ppsspp: 'psp' };
     const platform = platformMap[emulatorId] ?? '';
+    const isPSP = emulatorId === 'ppsspp';
 
     try {
       const baseDir = `${EXTERNAL_ROM_DIR}/${emulatorId}`;
@@ -485,10 +566,22 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
       let subDirs: string[] = [];
       try {
         const files = await listFiles(baseDir);
-        romFiles = files.filter((f: string) => {
-          const lower = f.toLowerCase();
-          return romExtensions.some((ext) => lower.endsWith(ext));
-        });
+        
+        if (isPSP) {
+          // For PSP: look for ISO/CSO/PBP files first, then EBOOT.PBP in PSP_GAME folders
+          romFiles = files.filter((f: string) => {
+            const lower = f.toLowerCase();
+            return romExtensions.some((ext) => lower.endsWith(ext)) || 
+                   (lower.includes('psp_game') && lower.endsWith('eboot.pbp'));
+          });
+        } else {
+          // Standard ROM file search
+          romFiles = files.filter((f: string) => {
+            const lower = f.toLowerCase();
+            return romExtensions.some((ext) => lower.endsWith(ext));
+          });
+        }
+        
         // Get unique subdirectory names from ROM file paths
         subDirs = [...new Set(romFiles.map((f: string) => {
           const rel = f.replace(baseDir + '/', '');
@@ -502,13 +595,13 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
 
         // Verify existing entries
         const verified = thisPlatformGames.filter((g) => {
-          const gameFolder = g.filename.replace(/\.zip$/i, '');
+          const gameFolder = g.filename.replace(/\.zip$/i, '').replace(/\.(iso|cso|pbp)$/i, '');
           const expectedDir = `${baseDir}/${gameFolder}`;
           return romFiles.some((f: string) => f.startsWith(expectedDir));
         });
 
         // Auto-discover: find ROM folders NOT in existing downloadedGames
-        const knownFolders = new Set(thisPlatformGames.map((g) => g.filename.replace(/\.zip$/i, '')));
+        const knownFolders = new Set(thisPlatformGames.map((g) => g.filename.replace(/\.zip$/i, '').replace(/\.(iso|cso|pbp)$/i, '')));
         const discovered: ApiGame[] = [];
         for (const dir of subDirs) {
           if (!knownFolders.has(dir)) {
@@ -556,7 +649,7 @@ export const DownloadManagerProvider: React.FC<{ children: React.ReactNode }> = 
           const coverPath = `${COVER_DIR}/${g.id}.png`;
           fileExists(coverPath).then(async (exists) => {
             if (!exists) {
-              const gameFolder = g.filename.replace(/\.zip$/i, '');
+              const gameFolder = g.filename.replace(/\.zip$/i, '').replace(/\.(iso|cso|pbp)$/i, '');
               const romDir = `${baseDir}/${gameFolder}`;
               try {
                 const romDirFiles = await listFiles(romDir);

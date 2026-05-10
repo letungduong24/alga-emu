@@ -131,6 +131,80 @@ class AppLauncherModule : Module() {
       true
     }
 
+    // === Recursive Unzip (hỗ trợ nested ZIP) ===
+    AsyncFunction("unzipRecursive") { zipPath: String, destDir: String ->
+      try {
+        val zipFile = File(zipPath)
+        if (!zipFile.exists()) {
+          android.util.Log.e("AppLauncher", "ZIP file not found: $zipPath")
+          throw Exception("ZIP file not found: $zipPath")
+        }
+
+        val destFolder = File(destDir)
+        if (!destFolder.exists()) {
+          destFolder.mkdirs()
+        }
+
+        android.util.Log.d("AppLauncher", "=== UNZIP START ===")
+        android.util.Log.d("AppLauncher", "Source: $zipPath (${zipFile.length()} bytes)")
+        android.util.Log.d("AppLauncher", "Dest: $destDir")
+        
+        // First extraction
+        android.util.Log.d("AppLauncher", "Extracting main ZIP...")
+        unzipFile(zipFile, destFolder)
+        
+        // List what was extracted
+        val extractedFiles = destFolder.walkTopDown().toList()
+        android.util.Log.d("AppLauncher", "Extracted ${extractedFiles.size} items:")
+        extractedFiles.take(20).forEach { file ->
+          android.util.Log.d("AppLauncher", "  - ${file.absolutePath} (${if (file.isDirectory) "DIR" else "${file.length()} bytes"})")
+        }
+
+        // Check for nested ZIPs and extract them
+        val nestedZips = extractedFiles.filter { it.isFile && it.extension.equals("zip", ignoreCase = true) }
+        
+        if (nestedZips.isNotEmpty()) {
+          android.util.Log.d("AppLauncher", "Found ${nestedZips.size} nested ZIP files")
+          
+          for (nestedZip in nestedZips) {
+            try {
+              android.util.Log.d("AppLauncher", "Extracting nested ZIP: ${nestedZip.name} (${nestedZip.length()} bytes)")
+              // Extract to same parent directory
+              unzipFile(nestedZip, nestedZip.parentFile ?: destFolder)
+              
+              // List what was extracted from nested ZIP
+              val nestedExtracted = (nestedZip.parentFile ?: destFolder).walkTopDown().toList()
+              android.util.Log.d("AppLauncher", "After nested extraction: ${nestedExtracted.size} items")
+              
+              // Delete the nested ZIP after extraction
+              val deleted = nestedZip.delete()
+              android.util.Log.d("AppLauncher", "Deleted nested ZIP: $deleted")
+            } catch (e: Exception) {
+              android.util.Log.e("AppLauncher", "Failed to extract nested ZIP ${nestedZip.name}: ${e.message}", e)
+              throw e  // Re-throw to fail the whole operation
+            }
+          }
+        } else {
+          android.util.Log.d("AppLauncher", "No nested ZIP files found")
+        }
+
+        // Final verification
+        val finalFiles = destFolder.walkTopDown().filter { it.isFile }.toList()
+        android.util.Log.d("AppLauncher", "=== UNZIP COMPLETE ===")
+        android.util.Log.d("AppLauncher", "Total files in dest: ${finalFiles.size}")
+        finalFiles.take(10).forEach { file ->
+          android.util.Log.d("AppLauncher", "  - ${file.name} (${file.length()} bytes)")
+        }
+        
+        true
+      } catch (e: Exception) {
+        android.util.Log.e("AppLauncher", "=== UNZIP FAILED ===", e)
+        android.util.Log.e("AppLauncher", "Error: ${e.message}")
+        android.util.Log.e("AppLauncher", "Stack trace: ${e.stackTraceToString()}")
+        throw Exception("Failed to unzip: ${e.message}")
+      }
+    }
+
     // === Get the correct save extension for a given core ===
     fun getSaveExtForCore(coreId: String): String {
       return when {
@@ -993,6 +1067,33 @@ class AppLauncherModule : Module() {
       ((b[1].toInt() and 0xFF) shl 8) or
       ((b[2].toInt() and 0xFF) shl 16) or
       ((b[3].toInt() and 0xFF) shl 24)
+  }
+
+  // Helper: unzip a single ZIP file
+  private fun unzipFile(zipFile: File, destDir: File) {
+    val zipIn = java.util.zip.ZipInputStream(FileInputStream(zipFile))
+    var entry = zipIn.nextEntry
+    
+    while (entry != null) {
+      val entryFile = File(destDir, entry.name)
+      
+      if (entry.isDirectory) {
+        entryFile.mkdirs()
+      } else {
+        // Create parent directories
+        entryFile.parentFile?.mkdirs()
+        
+        // Extract file
+        FileOutputStream(entryFile).use { fos ->
+          zipIn.copyTo(fos, bufferSize = 8192)
+        }
+      }
+      
+      zipIn.closeEntry()
+      entry = zipIn.nextEntry
+    }
+    
+    zipIn.close()
   }
 
   // Extract 48x48 large icon from SMDH data

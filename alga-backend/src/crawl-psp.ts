@@ -46,7 +46,7 @@ async function crawlPSP() {
 
   const files: ArchiveFile[] = data.files || [];
 
-  // Filter for PSP ROM files (ISO, CSO, PBP)
+  // Filter for PSP ROM files (ISO, CSO, PBP, ZIP)
   const romFiles = files.filter(
     (f) => 
       f.source === "original" && 
@@ -59,14 +59,21 @@ async function crawlPSP() {
   const repo = AppDataSource.getRepository(Game);
   let inserted = 0;
   let updated = 0;
+  let processed = 0;
 
   for (const file of romFiles) {
+    processed++;
+    if (processed % 100 === 0) {
+      console.log(`📊 Progress: ${processed}/${romFiles.length} files processed...`);
+    }
+
     const cleanFilename = file.name;
     const newName = cleanGameName(cleanFilename);
 
     // Skip if name is too short (likely metadata file)
     if (newName.length < 3) continue;
 
+    // Keep original filename (ISO files don't need extraction)
     const existing = await repo.findOneBy({ filename: cleanFilename, platform: "psp" });
     if (existing) {
       // Update name/size/url if changed

@@ -1,17 +1,16 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Pressable } from 'react-native';
-import { DownloadCloud, Loader2, CheckCircle2, Gamepad2, X, RotateCcw, Info } from 'lucide-react-native';
-import { ApiGame } from '@/hooks/useGameApi';
-import { Emulator } from '@/constants/emulators';
-import Animated, {
-  FadeInUp,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
-import { useDownloadManager } from '@/hooks/useDownloadManager';
-import { useEffect } from 'react';
 import { CustomAlert } from '@/components/CustomAlert';
+import { Emulator } from '@/constants/emulators';
+import { useDownloadManager } from '@/hooks/useDownloadManager';
+import { ApiGame } from '@/hooks/useGameApi';
+import { CheckCircle2, DownloadCloud, Info, RotateCcw, X } from 'lucide-react-native';
+import React, { useEffect, useState } from 'react';
+import { Text, TouchableOpacity, View } from 'react-native';
+import Animated, {
+    FadeInUp,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming,
+} from 'react-native-reanimated';
 
 const EXTERNAL_ROM_DIR = '/storage/emulated/0/Alga/roms';
 
@@ -51,7 +50,7 @@ export const ApiGameCard = ({ game, emulator, index }: Props) => {
   const isActive = dlState && (dlState.status === 'downloading' || dlState.status === 'extracting');
   const isError = dlState?.status === 'error';
 
-  const gameFolder = game.filename.replace(/\.zip$/i, '');
+  const gameFolder = game.filename.replace(/\.zip$/i, '').replace(/\.(iso|cso|pbp)$/i, '');
   const romDir = `${EXTERNAL_ROM_DIR}/${emulator.id}/${gameFolder}`;
 
   // Animated progress

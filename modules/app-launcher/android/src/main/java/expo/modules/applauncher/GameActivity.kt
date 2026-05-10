@@ -305,6 +305,7 @@ class GameActivity : AppCompatActivity(), InputManager.InputDeviceListener, Sens
         touchControls!!.is3DS = is3DS
         touchControls!!.isGBA = isGBA
         touchControls!!.isPSP = isPSP
+        touchControls!!.updateButtonLabels()
         container.addView(touchControls, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT

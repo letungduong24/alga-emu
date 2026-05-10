@@ -34,6 +34,11 @@ export async function deleteFileOrDir(path: string): Promise<boolean> {
   return AppLauncherModule.deleteFileOrDir(path);
 }
 
+// === Recursive Unzip (supports nested ZIP files) ===
+export async function unzipRecursive(zipPath: string, destDir: string): Promise<boolean> {
+  return AppLauncherModule.unzipRecursive(zipPath, destDir);
+}
+
 // === Background Download (Android DownloadManager) ===
 export interface EnqueueResult {
   downloadId: string;
