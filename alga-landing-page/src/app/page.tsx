@@ -175,11 +175,12 @@ export default function LandingPage() {
               <p className="text-slate-400 max-w-2xl mx-auto">Alga mang đến trải nghiệm giả lập mượt mà nhất trên Android .</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
               {[
                 { image: "/emu_3ds.png", name: "Nintendo 3DS" },
                 { image: "/emu_nds.png", name: "Nintendo DS" },
-                { image: "/emu_gba.png", name: "Game Boy Advance" }
+                { image: "/emu_gba.png", name: "Game Boy Advance" },
+                { image: "/emu_psp.png", name: "PlayStation Portable" }
               ].map((emu, i) => (
                 <motion.div
                   key={i}
@@ -199,7 +200,7 @@ export default function LandingPage() {
             <div className="mt-16 text-center">
               <div className="inline-block bg-white/5 rounded-full px-6 py-3 border border-white/5">
                 <p className="text-sm font-bold text-slate-400">
-                  Sắp ra mắt: <span className="text-white">PSP, PS1, N64, GameCube</span> và nhiều hệ máy khác...
+                  Sắp ra mắt: <span className="text-white">PS1, N64, GameCube</span> và nhiều hệ máy khác...
                 </p>
               </div>
             </div>

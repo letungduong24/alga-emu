@@ -94,7 +94,7 @@ class TouchControlsOverlay @JvmOverloads constructor(
     }
 
     data class VButton(
-        val id: String, val label: String, val keyCode: Int,
+        val id: String, var label: String, val keyCode: Int,
         var bounds: RectF = RectF(), var isPressed: Boolean = false
     )
 
@@ -120,7 +120,7 @@ class TouchControlsOverlay @JvmOverloads constructor(
     private val menuButton = VButton("menu", "⚙", -1)
 
     // Update button labels based on platform
-    private fun updateButtonLabels() {
+    fun updateButtonLabels() {
         if (isPSP) {
             // PSP: △ ○ ✕ □
             gameButtons.find { it.id == "y" }?.label = "△"  // Triangle (top)
